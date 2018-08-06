@@ -7,9 +7,9 @@ function async(func)
 	end
 end
 
-function await(func, ...)
+function await(repeatable, finish, ...)
 	local thread = coroutine.running()
-	local task = { thread = thread }
+	local task = { thread = thread, repeatable = repeatable, finish = finish, param = {...} }
 	local taskid = tostring(task)
 	tasks[taskid] = task
 	if not threads[thread] then 
@@ -17,19 +17,54 @@ function await(func, ...)
 	else
 		threads[thread][taskid] = task
 	end
-	func(taskid, ...)
-	return task
+	return taskid, task
+end
+
+function asyncFinish( task )
+	if task then
+		local taskid = tostring(task)
+		threads[task.thread][taskid] = nil
+		if not next(threads[task.thread]) then 
+			threads[task.thread] = nil 
+		end
+		tasks[taskid] = nil
+		if task.finish then
+			task.finish(unpack(task.param))
+			task.finish = nil
+			task.param = nil
+		end
+	else
+		local tasks = threads[coroutine.running()]
+		while true do
+			local task = tasks and next(tasks)
+			if not task then return end
+			asyncFinish( task )
+		end
+	end
+end
+
+function asyncResume( task )
+	if task.repeatable then
+		task.result = nil
+		task.complete = false
+	end
 end
 
 function asyncComplete( taskid, ... )
 	local task = tasks[taskid]
-	task.result = {...}
 	task.complete = true
-	threads[task.thread][taskid] = nil
-	if not next(threads[task.thread]) then 
-		threads[task.thread] = nil 
+	if select( "#", ... ) > 0 then
+		if task.repeatable then
+			if not task.result then 
+				task.result = { {...} }
+			else
+				task.result[ #task.result + 1 ] = { ... }
+			end
+		else
+			task.result = {...}
+		end
 	end
-	tasks[taskid] = nil
+	if not task.repeatable then asyncFinish( task ) end
 	coroutine.resume(task.thread)
 end
 
@@ -38,8 +73,12 @@ function asyncResult(task)
 		while not task.complete do
 			coroutine.yield()
 		end
-		if task.result then 
-			return unpack(task.result) 
+		if task.result then
+			if task.repeatable then
+				return task.result
+			else
+				return unpack(task.result)
+			end
 		end
 	else
 		while threads[coroutine.running()] do
@@ -78,37 +117,30 @@ function asyncWaitAll(...)
 	until complete
 end
 
-function asyncSleepStart( taskid, time )
-	setTimer( asyncComplete, time, 1, taskid )
-end
-
-function asyncSleep( time )
-	return await(asyncSleepStart, time)
+function asyncSleep( time, repeatable )
+	local taskid, task = await(repeatable)
+	setTimer( asyncComplete, time, repeatable and 0 or 1, taskid )
+	return task
 end
 
 function asyncDbQueryComplete( handle, taskid )
 	asyncComplete( taskid, dbPoll( handle, 0 ) )
 end
 	
-local function asyncDbQueryStart( taskid, connection, sql )
-	dbQuery( asyncDbQueryComplete, { taskid }, connection, sql )
-end
-
 function asyncDbQuery( connection, sql )
-	return await( asyncDbQueryStart, connection, sql )
+	local taskid, task = await()
+	dbQuery( asyncDbQueryComplete, { taskid }, connection, sql )
+	return task
 end
 
-local function asyncWaitEventStart( taskid, event, element )
-	local handler
+function asyncWaitEvent( event, element, repeatable )
+	local handler, taskid, task
 	handler = function(...)
-		removeEventHandler( event, element, handler )
 		asyncComplete( taskid, client, source, ... )
 	end
+	taskid, task = await( repeatable, removeEventHandler, event, element, handler )
 	addEventHandler( event, element, handler )
-end
-
-function asyncWaitEvent( event, element )
-	return await( asyncWaitEventStart, event, element )
+	return task
 end
 
 addEventHandler("onResourceStart", resourceRoot, async(function(...)
@@ -120,6 +152,8 @@ addEventHandler("onResourceStart", resourceRoot, async(function(...)
 	local task1 = asyncSleep(10000)
 	local task2 = asyncSleep(10000)
 	local task3 = asyncWaitEvent("onResourceStop", resourceRoot)
+	local task4 = asyncWaitEvent("onPlayerJoin", root, true)
+	local task5 = asyncSleep(10000, true)
 	
 	outputDebugString("query result "..tostring(asyncResult(task0)[1]["1"]))
 	
@@ -128,16 +162,20 @@ addEventHandler("onResourceStart", resourceRoot, async(function(...)
 	
 	asyncResult(task2)
 	outputDebugString("sleep 2 end ")
-	
-	while not asyncIsComplete( task3 ) do
-		
-		local task4 = asyncWaitEvent("onPlayerJoin", root)
-		
-		if asyncWaitAny( task3, task4 ) == task4 then
-			local client, source = asyncResult( task4 )
-			outputChatBox( "hello "..tostring(source), source )
+			
+	while not asyncIsComplete( task3 ) do		
+		local task = asyncWaitAny( task3, task4, task5 )
+		if task == task4 then
+			for _,result in ipairs(asyncResult( task )) do
+				local client, source = unpack(result)
+				outputChatBox( "hello "..tostring(source), source )
+			end
+		elseif task == task5 then
+			outputDebugString("tick")
 		end
+		asyncResume( task )
 	end
 	
+	asyncFinish()	
 	outputDebugString("async end")
 end))
