@@ -1,5 +1,6 @@
 local tasks = {}
 local threads = {}
+local watch = {}
 
 function async(func)
 	return function(...)
@@ -7,52 +8,30 @@ function async(func)
 	end
 end
 
-function await(repeatable, finish, ...)
-	local thread = coroutine.running()
-	local task = { thread = thread, repeatable = repeatable, finish = finish, param = {...} }
-	local taskid = tostring(task)
+local function asyncTaskSetDispose( task, dispose, ... )
+	task.dispose = dispose
+	task.param = {...}
+end
+
+local function asyncTaskSetLink( thread, taskid, task )
 	tasks[taskid] = task
-	if not threads[thread] then 
-		threads[thread] = { [taskid] = task } 
-	else
-		threads[thread][taskid] = task
-	end
-	return taskid, task
-end
-
-function asyncFinish( task )
 	if task then
-		local taskid = tostring(task)
-		threads[task.thread][taskid] = nil
-		if not next(threads[task.thread]) then 
-			threads[task.thread] = nil 
-		end
-		tasks[taskid] = nil
-		if task.finish then
-			task.finish(unpack(task.param))
-			task.finish = nil
-			task.param = nil
+		if not threads[thread] then 
+			threads[thread] = { [taskid] = task } 
+		else
+			threads[thread][taskid] = task
 		end
 	else
-		local tasks = threads[coroutine.running()]
-		while true do
-			local task = tasks and next(tasks)
-			if not task then return end
-			asyncFinish( task )
+		if threads[thread] then
+			threads[thread][taskid] = nil
+			if not next( threads[thread] ) then
+				threads[thread] = nil
+			end
 		end
 	end
 end
 
-function asyncResume( task )
-	if task.repeatable then
-		task.result = nil
-		task.complete = false
-	end
-end
-
-function asyncComplete( taskid, ... )
-	local task = tasks[taskid]
-	task.complete = true
+local function asyncTaskSetResult( task, ... )
 	if select( "#", ... ) > 0 then
 		if task.repeatable then
 			if not task.result then 
@@ -64,25 +43,68 @@ function asyncComplete( taskid, ... )
 			task.result = {...}
 		end
 	end
-	if not task.repeatable then asyncFinish( task ) end
-	coroutine.resume(task.thread)
 end
 
-function asyncResult(task)
+function asyncTask( repeatable, dispose, ...)
+	local thread = coroutine.running()
+	local task = { thread = thread, repeatable = repeatable }
+	local taskid = tostring(task)
+	asyncTaskSetDispose( task, dispose, ... )
+	asyncTaskSetLink( thread, taskid, task )
+	return taskid, task
+end
+
+function asyncDispose( task )
 	if task then
-		while not task.complete do
-			coroutine.yield()
+		local taskid = tostring(task)
+		asyncTaskSetLink( task.thread, taskid, nil )
+		if task.dispose then
+			task.dispose(unpack(task.param))
+			task.dispose = nil
+			task.param = nil
 		end
-		if task.result then
-			if task.repeatable then
-				return task.result
-			else
-				return unpack(task.result)
-			end
+	end
+end
+
+function asyncDisposeAll()
+	local thread = coroutine.running()
+	while threads[thread] do
+		local taskid, task = next(threads[thread])
+		if taskid then
+			asyncDispose( task )
 		end
-	else
-		while threads[coroutine.running()] do
-			coroutine.yield()
+	end
+end
+
+function asyncContinue( task )
+	if task.repeatable then
+		task.result = nil
+		task.complete = false
+	end
+end
+
+function asyncComplete( taskid, ... )
+	local task = tasks[taskid]
+	task.complete = true
+	asyncTaskSetResult( task, ... )
+	local thread = watch[task]
+	if not task.repeatable then 
+		asyncDispose( task ) 
+	end
+	if thread then 
+		coroutine.resume( thread ) 
+	end
+end
+
+function asyncResult( task )	
+	asyncWaitAny( task )
+	if task.result then
+		local result = task.result
+		if task.repeatable then	
+			asyncContinue( task )
+			return result
+		else
+			return unpack(result)
 		end
 	end
 end
@@ -91,35 +113,49 @@ function asyncIsComplete(task)
 	return task.complete
 end
 
-function asyncWaitAny(...)
-	local count = select("#",...)
-	while true do
-		for i = 1,count do 
-			local task = select(i,...)
-			if task.complete then return task end
-		end
-		coroutine.yield()
+local function watchTask( thread, ... )
+	for i = 1, select("#",...) do
+		local task = select(i,...)
+		watch[task] = thread
 	end
 end
 
+local function checkTask( condition, ...)
+	for i = 1, select("#",...) do
+		local task = select(i,...)
+		if task.complete == condition then return task end
+	end
+end
+
+function asyncWaitAny(...)
+	local task = checkTask(true, ...)
+	if not task then 
+		watchTask(coroutine.running(), ...)
+		repeat
+			coroutine.yield()
+			task = checkTask(true, ...)
+		until task
+		watchTask(nil, ...)
+	end
+	return task
+end
+
 function asyncWaitAll(...)
-	local complete
-	repeat
-		complete = true
-		for i=1,select("#",...) do 
-			local task = select(i,...)
-			if not task.complete then
-				complete = false
-				break
-			end
-		end
-		coroutine.yield()
-	until complete
+	local task = checkTask(false, ...)
+	if task then 
+		watchTask(coroutine.running(), ...)
+		repeat
+			coroutine.yield()
+			task = checkTask(false, ...)
+		until not task
+		watchTask(nil, ...)
+	end
 end
 
 function asyncSleep( time, repeatable )
-	local taskid, task = await(repeatable)
-	setTimer( asyncComplete, time, repeatable and 0 or 1, taskid )
+	local taskid, task = asyncTask( repeatable )
+	local timer = setTimer( asyncComplete, time, repeatable and 0 or 1, taskid )	
+	asyncTaskSetDispose( task, killTimer, timer )
 	return task
 end
 
@@ -128,54 +164,105 @@ function asyncDbQueryComplete( handle, taskid )
 end
 	
 function asyncDbQuery( connection, sql )
-	local taskid, task = await()
+	local taskid, task = asyncTask()
 	dbQuery( asyncDbQueryComplete, { taskid }, connection, sql )
 	return task
 end
 
-function asyncWaitEvent( event, element, repeatable )
+function asyncWaitEvent( event, element, propagated, repeatable )
 	local handler, taskid, task
 	handler = function(...)
 		asyncComplete( taskid, client, source, ... )
 	end
-	taskid, task = await( repeatable, removeEventHandler, event, element, handler )
-	addEventHandler( event, element, handler )
+	taskid, task = asyncTask( repeatable, removeEventHandler, event, element, handler )
+	addEventHandler( event, element, handler, propagated )
 	return task
 end
 
-addEventHandler("onResourceStart", resourceRoot, async(function(...)
-	outputDebugString("async start")	
-	
-	local connection = dbConnect("sqlite", "testdb.sqlite")
-	
-	local task0 = asyncDbQuery(connection, "SELECT 1")	
-	local task1 = asyncSleep(10000)
-	local task2 = asyncSleep(10000)
-	local task3 = asyncWaitEvent("onResourceStop", resourceRoot)
-	local task4 = asyncWaitEvent("onPlayerJoin", root, true)
-	local task5 = asyncSleep(10000, true)
-	
-	outputDebugString("query result "..tostring(asyncResult(task0)[1]["1"]))
-	
-	asyncResult(task1)
-	outputDebugString("sleep 1 end ")
-	
-	asyncResult(task2)
-	outputDebugString("sleep 2 end ")
-			
-	while not asyncIsComplete( task3 ) do		
-		local task = asyncWaitAny( task3, task4, task5 )
-		if task == task4 then
-			for _,result in ipairs(asyncResult( task )) do
-				local client, source = unpack(result)
-				outputChatBox( "hello "..tostring(source), source )
+-- server side demo
+if triggerServerEvent == nil then
+	addEventHandler("onResourceStart", resourceRoot, async(function(...)
+		outputDebugString("async start")
+		
+		local connection = dbConnect("sqlite", "testdb.sqlite")
+		
+		local task0 = asyncDbQuery(connection, "SELECT 1")	
+		local task1 = asyncSleep(10000)
+		local task2 = asyncSleep(10000)
+		local task3 = asyncWaitEvent("onResourceStop", resourceRoot)
+		local task4 = asyncWaitEvent("onPlayerJoin", root, nil, true)
+		local task5 = asyncSleep(10000, true)
+		
+		outputDebugString("query result "..tostring(asyncResult(task0)[1]["1"]))
+		
+		asyncResult(task1)
+		outputDebugString("sleep 1 end ")
+		
+		asyncResult(task2)
+		outputDebugString("sleep 2 end ")
+				
+		while not asyncIsComplete( task3 ) do		
+			local task = asyncWaitAny( task3, task4, task5 )
+			if task == task4 then
+				for _,result in ipairs(asyncResult( task )) do
+					local client, source = unpack(result)
+					outputChatBox( "hello "..tostring(source), source )
+				end
+			elseif task == task5 then
+				outputDebugString("tick")
 			end
-		elseif task == task5 then
-			outputDebugString("tick")
+			asyncContinue( task )
 		end
-		asyncResume( task )
-	end
-	
-	asyncFinish()	
-	outputDebugString("async end")
-end))
+		
+		asyncDisposeAll()
+		outputDebugString("async end")
+	end))
+else
+-- client side demo
+	addCommandHandler( "t", async(function()
+		showCursor( true )
+		
+		local window  = guiCreateWindow( 0.75, 0.75, 0.25, 0.25, "test", true )
+		
+		local buttons = 
+		{
+			{ 0,    0.1,  0.25, 0.25, "1" },
+			{ 0.75, 0.1,  0.25, 0.25, "2" },
+			{ 0,    0.75, 0.25, 0.25, "3" },
+			{ 0.75, 0.75, 0.25, 0.25, "4" }
+		}
+		-- create four buttons and watcher tasks
+		local controls = {}
+		local events = {}
+		for i,button in ipairs(buttons) do
+			local x,y,w,h,text = unpack(button)
+			controls[i] = guiCreateButton( x, y, w, h, text, true, window )
+			events[i]   = asyncWaitEvent( "onClientGUIClick", controls[i], false, true )
+		end
+		
+		local clicked
+		repeat
+			-- wait any button click
+			clicked = asyncWaitAny( unpack(events) )
+			
+			-- commonly one event returned but in generic case may be several
+			for _,result in ipairs( asyncResult(clicked) ) do
+				
+				-- get click event arguments
+				local client, source, button, state, absoluteX, absoluteY = unpack( result )
+				
+				local text = guiGetText( source )
+				
+				outputChatBox( "pressed "..button.." button on:"..text )
+			end
+		-- exit if button 4 clicked
+		until clicked == events[#events]
+		
+		-- release watcher tasks
+		asyncDisposeAll()
+		
+		destroyElement(window)
+		
+		showCursor( false )
+	end))
+end
