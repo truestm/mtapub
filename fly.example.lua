@@ -75,7 +75,6 @@ end
 local function flyStop()
 	if flyVehicle then
 		removeEventHandler( "onClientPreRender",      root,        flyOnPreRender )
-		removeEventHandler( "onClientKey",            root,        flyKey  )
 		removeEventHandler( "onClientPlayerWasted",   localPlayer, flyStop )
 		removeEventHandler( "onClientVehicleExit",    flyVehicle,  flyStop )
 		removeEventHandler( "onClientVehicleExplode", flyVehicle,  flyStop )
