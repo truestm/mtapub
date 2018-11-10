@@ -1,11 +1,10 @@
 function quaternion_multiply(x1,y1,z1,w1, x2,y2,z2,w2)
---[[
 	return
 		w1*x2 + x1*w2 + y1*z2 - z1*y2,
 		w1*y2 - x1*z2 + y1*w2 + z1*x2,
 		w1*z2 + x1*y2 - y1*x2 + z1*w2,
 		w1*w2 - x1*x2 - y1*y2 - z1*z2
-]]
+--[[
 	local A = (w1 + x1) * (w2 + x2)
 	local B = (z1 - y1) * (y2 - z2)
 	local C = (x1 - w1) * (y2 + z2)
@@ -19,6 +18,7 @@ function quaternion_multiply(x1,y1,z1,w1, x2,y2,z2,w2)
 	local y = -C + ( E - F + G - H ) * 0.5
 	local z = -D + ( E - F - G + H ) * 0.5
 	return x,y,z,w
+]]
 end
 
 function quaternion_to_xyz( x, y, z, w )
@@ -33,6 +33,19 @@ local function cos_sin_half_angle( a )
 end
 
 function quaternion_from_xyz( x, y, z )
+	local c1 = math.cos(math.rad(x / 2))
+	local c2 = math.cos(math.rad(y / 2))
+	local c3 = math.cos(math.rad(z / 2))
+	local s1 = math.sin(math.rad(x / 2))
+	local s2 = math.sin(math.rad(y / 2))
+	local s3 = math.sin(math.rad(z / 2))
+
+	return
+		(s1 * s2 * c3) + (c1 * c2 * s3),
+		(s1 * c2 * c3) + (c1 * s2 * s3),
+		(c1 * s2 * c3) - (s1 * c2 * s3),
+		(c1 * c2 * c3) - (s1 * s2 * s3)
+--[[
 	local cos_x, sin_x = cos_sin_half_angle( x )
 	local cos_y, sin_y = cos_sin_half_angle( y )
 	local cos_z, sin_z = cos_sin_half_angle( z )
@@ -48,6 +61,7 @@ function quaternion_from_xyz( x, y, z )
 	local qz = cos_x_sin_y * cos_z - sin_x_cos_y * sin_z 	
 	
 	return qx, qy, qz, qw
+]]
 end
 
 function quaternion_conjugate( x, y, z, w )
