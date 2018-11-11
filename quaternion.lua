@@ -32,6 +32,25 @@ local function cos_sin_half_angle( a )
 	return math.cos(h), math.sin(h)
 end
 
+function quaternion_from_angle( a, x, y, z )
+	local h = math.rad( a * 0.5 )
+	local cos = math.cos( h )
+	local sin = math.sin( h )
+	return sin * x, sin * y, sin * z, cos
+end
+
+function quaternion_from_angle_z( a, l )
+	return quaternion_from_angle( a, 0, 0, l or 1 )
+end
+
+function quaternion_from_angle_y( a, l )
+	return quaternion_from_angle( a, 0, l or 1, 0 )
+end
+
+function quaternion_from_angle_x( a, l )
+	return quaternion_from_angle( a, l or 1, 0, 0 )
+end
+
 function quaternion_from_xyz( x, y, z )
 	local c1 = math.cos(math.rad(x / 2))
 	local c2 = math.cos(math.rad(y / 2))
@@ -68,7 +87,13 @@ function quaternion_conjugate( x, y, z, w )
 	return -x, -y, -z, w
 end
 
+function quaternion_inverse( x, y, z, w )
+	local qx, qy, qz, qw = quaternion_conjugate( x,y,z,w )
+	local norm = 1 / ( x*x + y*y + z*z + w*w )
+	return qx * norm, qy * norm, qz * norm, qw * norm
+end
+
 function quaternion_transform( x, y, z, w, vx, vy, vz )
-	local qvx, qvy, qvz, qvw = quaternion_multiply( x,y,z,w, vx,vy,vz,0 )
-	return quaternion_multiply( qvx,qvy,qvz,qvw, quaternion_conjugate( x,y,z,w ) )
+	local qx, qy, qz, qw = quaternion_multiply( x,y,z,w, vx,vy,vz,0 )
+	return quaternion_multiply( qx,qy,qz,qw, quaternion_inverse( x,y,z,w ) )
 end
