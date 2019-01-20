@@ -1,11 +1,21 @@
 function importFunctions(resourceName, namespace)
-    local resource = getResourceFromName( resourceName )
+	local resource = getResourceFromName( resourceName )
 	for _,name in ipairs(getResourceExportedFunctions(resource)) do
 		if type(namespace) == "table" then
-			namespace[name] = function(self,...) return call(resource, name, ...) end
+			namespace[name] = function(self,...)
+				if getUserdataType(resource) ~= "resource-data" then
+					resource = getResourceFromName( resourceName )
+				end
+				return call(resource, name, ...)
+			end
 		else
-			_G[(namespace or "")..name] = function(...) return call(resource, name, ...) end
+			_G[(namespace or "")..name] = function(...)
+				if getUserdataType(resource) ~= "resource-data" then
+					resource = getResourceFromName( resourceName )
+				end
+				return call(resource, name, ...)
+			end
 		end
-    end
+	end
 	return namespace
 end
