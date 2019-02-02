@@ -70,7 +70,6 @@ local function pulse()
 	for vehicle,data in pairs(vehicles) do
 
 		local m = vehicle.matrix
-		local norm = m.right	
 		local position = vehicle.position + m.forward * -2
 		
 		for i = 1,#data do
@@ -88,13 +87,13 @@ local function pulse()
 
 			local dx, dy, dz = position.x - px, position.y - py, position.z - pz
 			local d = dx * dx + dy * dy + dz * dz
-			if d > 0.01 then
-				data[c + 1] = { now, position.x, position.y, position.z, norm.x, norm.y, norm.z }
+			if d > 0.2 then
+				data[c + 1] = { now, position.x, position.y, position.z }
 			elseif vehicle == localVehicle then
 			-- don`t stop
 			end
 		else
-			data[c + 1] = { now, position.x, position.y, position.z, norm.x, norm.y, norm.z }
+			data[c + 1] = { now, position.x, position.y, position.z }
 		end
 	end
 end
@@ -125,11 +124,14 @@ local function draw(now)
 		for i = 1,c do
 			local t,x,y,z = unpack(data[c - i + 1])
 			if now - t > LIFETIME then break end
-			local l = getDistanceBetweenPoints2D(prev_x,prev_y,x,y)
-			if l > 0.1 then
-				local nx,ny = normal2d( prev_x, prev_y, x, y )
+			local n = i + 1
+			if n <= c then
+				local next_t, next_x, next_y, next_z = unpack(data[c - n + 1])
+				local nx,ny = normal2d( prev_x, prev_y, next_x, next_y )
 			-- in future replace to dxDrawMaterialPrimitive3d
-				dxDrawMaterialSectionLine3D( prev_x,prev_y,prev_z, x,y,z, 0,0,2,2,texTail, 1, COLOR, false, x + nx, y + ny, z )
+				dxDrawMaterialSectionLine3D( prev_x,prev_y,prev_z,
+					next_x,next_y,next_z, 
+					0,0,32,32,texTail, 1, COLOR, false, next_x + nx, next_y + ny, next_z )
 				prev_x,prev_y,prev_z = x,y,z
 			end
 		end
@@ -151,9 +153,10 @@ local function check(now)
 			for i = 1,c do
 				local t,x,y,z = unpack(data[c - i + 1])
 				if now - t > LIFETIME then break end
-				if getDistanceBetweenPoints3D(x,y,z,vx,vy,vz) < 0.7 then
-					setTimer( triggerServerEvent, 50, 1, "DL:onVehicleHit", vehicle )
-					blowVehicle( vehicle, true )
+				if getDistanceBetweenPoints3D(x,y,z,vx,vy,vz) < 0.7 then					
+					setTimer( triggerServerEvent, 50, 1, "DL:onVehicleHit", localPlayer )
+					setElementHealth( vehicle, 0 )
+					setTimer( blowVehicle, 1000, 1, vehicle, true )
 					break
 				end
 			end
@@ -163,22 +166,10 @@ end
 
 local function OnClientRender()	
 	dxDrawText( string.format("%g, %g", avgFps, fps), 0, 0 )
---[[	
-	local m = localPlayer.matrix
-	local p = localPlayer.position
-	local f = p + 5 * m.forward
-	local l = p - 5 * m.right
-	local dx = p.y - f.y
-	local dy = f.x - p.x
-	dxDrawLine3D( p.x, p.y, p.z, p.x, p.y, p.z + 5, tocolor(255,255,255,128), 1, false )
-	dxDrawLine3D( p.x, p.y, p.z, f.x, f.y, f.z, tocolor(255,0,0,128), 1, false )
-	dxDrawLine3D( p.x, p.y, p.z, l.x, l.y, l.z, tocolor(0,0,255,128), 1, false )
-	dxDrawLine3D( p.x, p.y, p.z, p.x + dx, p.y + dy, p.z, tocolor(0,255,0,128), 1, false )
-]]
+
 	local now = getTickCount()
 	draw(now)
 	check(now)
-
 end
 addEventHandler( "onClientRender", root, OnClientRender )
 
