@@ -32,6 +32,7 @@ end
 local timer
 local LIFETIME = 5000
 local vehicles = {}
+local COLOR = tocolor(255,0,0,128)
 
 addEventHandler( "onClientElementStreamIn", root,
 function()
@@ -69,7 +70,7 @@ local function pulse()
 	for vehicle,data in pairs(vehicles) do
 
 		local m = vehicle.matrix
-		local norm = m.right		
+		local norm = m.right	
 		local position = vehicle.position + m.forward * -2
 		
 		for i = 1,#data do
@@ -112,16 +113,25 @@ end
 
 local texTail = dxCreateTexture("tail.png")
 
+local function normal2d(x1,y1,x2,y2)
+	return y1 - y2, x2 - x1
+end
+
 local function draw(now)
 	for vehicle,data in pairs(vehicles) do
-		local ex,ey,ez = getElementPosition( vehicle )		
-		local c = #data
+		local prev_x,prev_y,prev_z = getElementPosition( vehicle )
+		local prev_dx,prev_dy,prev_dz
+		local c = #data		
 		for i = 1,c do
-			local t,x,y,z,nx,ny,nz = unpack(data[c - i + 1])
+			local t,x,y,z = unpack(data[c - i + 1])
 			if now - t > LIFETIME then break end
+			local l = getDistanceBetweenPoints2D(prev_x,prev_y,x,y)
+			if l > 0.1 then
+				local nx,ny = normal2d( prev_x, prev_y, x, y )
 			-- in future replace to dxDrawMaterialPrimitive3d
-			dxDrawMaterialSectionLine3D(x,y,z,ex,ey,ez,0,0,2,2,texTail,1,tocolor(255,0,0,128),false,nx,ny, --[[ nz ]] 0 )
-			ex,ey,ez = x,y,z
+				dxDrawMaterialSectionLine3D( prev_x,prev_y,prev_z, x,y,z, 0,0,2,2,texTail, 1, COLOR, false, x + nx, y + ny, z )
+				prev_x,prev_y,prev_z = x,y,z
+			end
 		end
 	end
 end
@@ -153,7 +163,18 @@ end
 
 local function OnClientRender()	
 	dxDrawText( string.format("%g, %g", avgFps, fps), 0, 0 )
-	
+--[[	
+	local m = localPlayer.matrix
+	local p = localPlayer.position
+	local f = p + 5 * m.forward
+	local l = p - 5 * m.right
+	local dx = p.y - f.y
+	local dy = f.x - p.x
+	dxDrawLine3D( p.x, p.y, p.z, p.x, p.y, p.z + 5, tocolor(255,255,255,128), 1, false )
+	dxDrawLine3D( p.x, p.y, p.z, f.x, f.y, f.z, tocolor(255,0,0,128), 1, false )
+	dxDrawLine3D( p.x, p.y, p.z, l.x, l.y, l.z, tocolor(0,0,255,128), 1, false )
+	dxDrawLine3D( p.x, p.y, p.z, p.x + dx, p.y + dy, p.z, tocolor(0,255,0,128), 1, false )
+]]
 	local now = getTickCount()
 	draw(now)
 	check(now)
