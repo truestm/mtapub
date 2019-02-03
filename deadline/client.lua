@@ -39,7 +39,9 @@ local vehicles = {}
 local COLOR = tocolor(255,0,0,255)
 local COLOR_BB = tocolor(0,255,0,128)
 local COLOR_IN_BB = tocolor(0,0,255,128)
+local MIN_SIZE = 1
 local boundingBoxes
+
 
 addEventHandler( "onClientElementStreamIn", root,
 function()
@@ -70,6 +72,12 @@ local function shift(tab,n)
 	end
 end
 
+local function bound_range(min,max,size)
+	if max - min > size then return min, max end
+	local o = ( min + max ) / 2
+	return o - size / 2, o + size
+end
+
 local function findBoundingBox(data,start,length)
 	local max_x,max_y,max_z = -math.huge, -math.huge, -math.huge
 	local min_x,min_y,min_z =  math.huge,  math.huge,  math.huge
@@ -82,7 +90,12 @@ local function findBoundingBox(data,start,length)
 		if y < min_y then min_y = y end
 		if z < min_z then min_z = z end
 	end
-	return min_x,min_y,min_z - 0.5,max_x,max_y,max_z + 0.5
+
+	min_x, max_x = bound_range( min_x, max_x, MIN_SIZE )
+	min_y, max_y = bound_range( min_y, max_y, MIN_SIZE )
+	min_z, max_z = bound_range( min_z, max_z, MIN_SIZE )
+	
+	return min_x, min_y, min_z, max_x, max_y, max_z
 end
 
 local function buildBoundingBoxes(data,start,length)
@@ -138,7 +151,6 @@ local function pulse()
 
 		if vehicle == localVehicle then
 			boundingBoxes = buildBoundingBoxes(data,1,#data)
-			--iprint(boundingBoxes)
 		end
 	end
 end
@@ -204,14 +216,14 @@ local function draw(now)
 			-- in future replace to dxDrawMaterialPrimitive3d
 				dxDrawMaterialSectionLine3D( prev_x,prev_y,prev_z,
 					next_x,next_y,next_z, 
-					0,0,32,32,texTail, 1, COLOR, false, next_x + nx, next_y + ny, next_z )
+					0,0,32,32,texTail, MIN_SIZE, COLOR, false, next_x + nx, next_y + ny, next_z )
 				prev_x,prev_y,prev_z = x,y,z
 			end
 		end
 	end
-	if boundingBoxes then
-		drawBoundingBox(boundingBoxes,COLOR_BB,true)
-	end
+--	if boundingBoxes then
+--		drawBoundingBox(boundingBoxes,COLOR_BB,true)
+--	end
 end
 
 local function in_range(x,l,h)
@@ -222,7 +234,7 @@ local function inBoundingBox(box,x,y,z)
 	if not box then return false end
 	local first, second, start, length, min_x, min_y, min_z, max_x, max_y, max_z = unpack(box)
 	if in_range(x, min_x, max_x) and in_range(y, min_y, max_y) and in_range(z, min_z, max_z) then
-		drawBoundingBox(box,COLOR_IN_BB,false)
+--		drawBoundingBox(box,COLOR_IN_BB,false)
 		if not (first or second) then return true end
 		return inBoundingBox(first,x,y,z) or inBoundingBox(second,x,y,z)
 	end
@@ -236,7 +248,7 @@ local function check(now)
 		local x,y,z = getElementPosition( vehicle )
 		local box = inBoundingBox(boundingBoxes,x,y,z)
 		if box then
-			setTimer( triggerServerEvent, 50, 1, "DL:onVehicleHit", localPlayer )
+			setTimer( triggerServerEvent, 50, 1, "DL:onVehicleHit", localPlayer, getVehicleOccupant(vehicle) )
 			setElementHealth( vehicle, 0 )
 			setTimer( blowVehicle, 1000, 1, vehicle, true )
 		end
