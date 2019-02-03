@@ -1,9 +1,13 @@
 --[[
+function dxCreateTexture(...) return {} end
+function tocolor(...) return {} end
 function getPedOccupiedVehicle(...) return {} end
 function getPedOccupiedVehicleSeat(...) return 0 end
 function getTickCount(...) return 0 end
 function getElementPosition(...) return 1,2,3 end
+function addEvent(...) end
 function addEventHandler(...) end
+function addCommandHandler(...) end
 ]]
 
 local fps = 0
@@ -32,7 +36,10 @@ end
 local timer
 local LIFETIME = 5000
 local vehicles = {}
-local COLOR = tocolor(255,0,0,128)
+local COLOR = tocolor(255,0,0,255)
+local COLOR_BB = tocolor(0,255,0,128)
+local COLOR_IN_BB = tocolor(0,0,255,128)
+local boundingBoxes
 
 addEventHandler( "onClientElementStreamIn", root,
 function()
@@ -60,6 +67,39 @@ local function shift(tab,n)
 	end
 	for i = 1,n do 
 		tab[c - i + 1] = nil 
+	end
+end
+
+local function findBoundingBox(data,start,length)
+	local max_x,max_y,max_z = -math.huge, -math.huge, -math.huge
+	local min_x,min_y,min_z =  math.huge,  math.huge,  math.huge
+	for i = start,start + length - 1 do
+		local t,x,y,z = unpack(data[i])
+		if x > max_x then max_x = x end
+		if y > max_y then max_y = y end
+		if z > max_z then max_z = z end
+		if x < min_x then min_x = x end
+		if y < min_y then min_y = y end
+		if z < min_z then min_z = z end
+	end
+	return min_x,min_y,min_z - 0.5,max_x,max_y,max_z + 0.5
+end
+
+local function buildBoundingBoxes(data,start,length)
+	if length <= 3 then
+		return 
+		{ 
+			false, 
+			false, 
+			start, length, findBoundingBox(data,start,length) 
+		}
+	else
+		local halfLength = math.floor(length / 2)
+		return { 
+			buildBoundingBoxes(data, start,              halfLength + 1 ),
+			buildBoundingBoxes(data, start + halfLength, halfLength),
+			start, length, findBoundingBox(data,start,length) 
+		}
 	end
 end
 
@@ -95,6 +135,11 @@ local function pulse()
 		else
 			data[c + 1] = { now, position.x, position.y, position.z }
 		end
+
+		if vehicle == localVehicle then
+			boundingBoxes = buildBoundingBoxes(data,1,#data)
+			--iprint(boundingBoxes)
+		end
 	end
 end
 
@@ -103,17 +148,45 @@ local function stop()
 		killTimer( timer ) 
 		timer = nil
 	end
+	boundingBoxes = nil
+	local vehicle = getLocalVehicle()
+	if vehicle then vehicles[vehicle] = nil end
 end
 
 local function start()
 	stop()
 	timer = setTimer( pulse, 100, 0 )	
+	local vehicle = getLocalVehicle()
+	if vehicle then vehicles[vehicle] = {} end
 end
 
 local texTail = dxCreateTexture("tail.png")
 
 local function normal2d(x1,y1,x2,y2)
 	return y1 - y2, x2 - x1
+end
+
+local function drawBoundingBox(box,color,nested)
+	local first, second, start, length, min_x, min_y, min_z, max_x, max_y, max_z = unpack(box)
+	
+	if nested then 
+		if first then drawBoundingBox(first,color,nested) end
+		if second then drawBoundingBox(second,color,nested) end
+	end
+
+	dxDrawLine3D(min_x, min_y, min_z, max_x, min_y, min_z, color)
+	dxDrawLine3D(min_x, min_y, min_z, min_x, max_y, min_z, color)
+	dxDrawLine3D(min_x, min_y, min_z, min_x, min_y, max_z, color)
+	
+	dxDrawLine3D(min_x, min_y, max_z, max_x, min_y, max_z, color)
+	dxDrawLine3D(min_x, min_y, max_z, min_x, max_y, max_z, color)
+
+	dxDrawLine3D(max_x, max_y, max_z, min_x, max_y, max_z, color)
+	dxDrawLine3D(max_x, max_y, max_z, max_x, min_y, max_z, color)
+	dxDrawLine3D(max_x, max_y, max_z, max_x, max_y, min_z, color)
+
+	dxDrawLine3D(max_x, max_y, min_z, max_x, min_y, min_z, color)
+	dxDrawLine3D(max_x, max_y, min_z, min_x, max_y, min_z, color)
 end
 
 local function draw(now)
@@ -136,30 +209,36 @@ local function draw(now)
 			end
 		end
 	end
+	if boundingBoxes then
+		drawBoundingBox(boundingBoxes,COLOR_BB,true)
+	end
+end
+
+local function in_range(x,l,h)
+	return x <= h and x >= l
+end
+
+local function inBoundingBox(box,x,y,z)
+	if not box then return false end
+	local first, second, start, length, min_x, min_y, min_z, max_x, max_y, max_z = unpack(box)
+	if in_range(x, min_x, max_x) and in_range(y, min_y, max_y) and in_range(z, min_z, max_z) then
+		drawBoundingBox(box,COLOR_IN_BB,false)
+		if not (first or second) then return true end
+		return inBoundingBox(first,x,y,z) or inBoundingBox(second,x,y,z)
+	end
+	return false
 end
 
 addEvent("DL:onVehicleHit", true)
 local function check(now)
-	local localVehicle = getLocalVehicle()
-	local data = localVehicle and vehicles[localVehicle]
-	if not data then return end
-	local c = #data
-	for i = 1,c do
-		local t,x,y,z = unpack(data[c - i + 1])
-		if now - t > LIFETIME then break end
-		for vehicle,_ in pairs(vehicles) do
-			local vx,vy,vz = getElementPosition( vehicle )
-			local c = #data
-			for i = 1,c do
-				local t,x,y,z = unpack(data[c - i + 1])
-				if now - t > LIFETIME then break end
-				if getDistanceBetweenPoints3D(x,y,z,vx,vy,vz) < 0.7 then					
-					setTimer( triggerServerEvent, 50, 1, "DL:onVehicleHit", localPlayer )
-					setElementHealth( vehicle, 0 )
-					setTimer( blowVehicle, 1000, 1, vehicle, true )
-					break
-				end
-			end
+	if not boundingBoxes then return end
+	for vehicle,_ in pairs(vehicles) do
+		local x,y,z = getElementPosition( vehicle )
+		local box = inBoundingBox(boundingBoxes,x,y,z)
+		if box then
+			setTimer( triggerServerEvent, 50, 1, "DL:onVehicleHit", localPlayer )
+			setElementHealth( vehicle, 0 )
+			setTimer( blowVehicle, 1000, 1, vehicle, true )
 		end
 	end
 end
