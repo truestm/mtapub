@@ -39,7 +39,7 @@ local vehicles = {}
 local COLOR = tocolor(255,0,0,255)
 local COLOR_BB = tocolor(0,255,0,128)
 local COLOR_IN_BB = tocolor(0,0,255,128)
-local MIN_SIZE = 1
+local MIN_RADIUS = 0.5
 local boundingBoxes
 
 
@@ -72,10 +72,10 @@ local function shift(tab,n)
 	end
 end
 
-local function bound_range(min,max,size)
-	if max - min > size then return min, max end
+local function bound_range(min,max,radius)
+	if max - min > radius + radius then return min, max end
 	local o = ( min + max ) / 2
-	return o - size / 2, o + size
+	return o - radius, o + radius
 end
 
 local function findBoundingBox(data,start,length)
@@ -91,9 +91,9 @@ local function findBoundingBox(data,start,length)
 		if z < min_z then min_z = z end
 	end
 
-	min_x, max_x = bound_range( min_x, max_x, MIN_SIZE )
-	min_y, max_y = bound_range( min_y, max_y, MIN_SIZE )
-	min_z, max_z = bound_range( min_z, max_z, MIN_SIZE )
+	min_x, max_x = bound_range( min_x, max_x, MIN_RADIUS )
+	min_y, max_y = bound_range( min_y, max_y, MIN_RADIUS )
+	min_z, max_z = bound_range( min_z, max_z, MIN_RADIUS )
 	
 	return min_x, min_y, min_z, max_x, max_y, max_z
 end
@@ -216,7 +216,7 @@ local function draw(now)
 			-- in future replace to dxDrawMaterialPrimitive3d
 				dxDrawMaterialSectionLine3D( prev_x,prev_y,prev_z,
 					next_x,next_y,next_z, 
-					0,0,32,32,texTail, MIN_SIZE, COLOR, false, next_x + nx, next_y + ny, next_z )
+					0,0,32,32,texTail, MIN_RADIUS + MIN_RADIUS, COLOR, false, next_x + nx, next_y + ny, next_z )
 				prev_x,prev_y,prev_z = x,y,z
 			end
 		end
