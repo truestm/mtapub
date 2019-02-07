@@ -93,9 +93,8 @@ local function findBoundingBox(data,start,length)
 
 	min_x, max_x = bound_range( min_x, max_x, MIN_RADIUS )
 	min_y, max_y = bound_range( min_y, max_y, MIN_RADIUS )
-	min_z, max_z = bound_range( min_z, max_z, MIN_RADIUS )
 	
-	return min_x, min_y, min_z, max_x, max_y, max_z
+	return min_x, min_y, min_z - MIN_RADIUS, max_x, max_y, max_z + MIN_RADIUS
 end
 
 local function buildBoundingBoxes(data,start,length)
