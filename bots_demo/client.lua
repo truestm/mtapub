@@ -29,7 +29,12 @@ end
 addEventHandler( "onClientResourceStart", getResourceRootElement(), function()
     commands_code = {}
     local code = 1
+    local names = {}    
     for name,func in pairs(commands) do 
+        table.insert(names,name) 
+    end
+    table.sort(names)
+    for _,name in ipairs(names) do
         commands_code[code] = name
         commands_code[name] = code
         code = code + 1
@@ -58,10 +63,11 @@ addEventHandler( "onClientElementStreamOut", root, function()
     end
 end)
 
-addEventHandler( "onClientBotAttach", root, function(shared)
+addEventHandler( "onClientBotAttach", root, function(command,syncer,shared)
     local bot = bots[source]
     if bot then
-        bot.syncer = true
+        bot.command = command
+        bot.syncer = syncer
         bot.shared = shared
     end
 end)

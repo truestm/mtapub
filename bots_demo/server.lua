@@ -13,9 +13,11 @@ addEventHandler( "onBotAttach", root, function()
     if not bot.syncer then
         if setElementSyncer( source, client ) then
             bot.syncer = client
-            triggerClientEvent( client, "onClientBotAttach", source, bot.shared )
+            triggerClientEvent( client, "onClientBotAttach", source, bot.command, true, bot.shared )
+            return
         end
     end
+    triggerClientEvent( client, "onClientBotAttach", source, bot.command )
 end)
 
 addEventHandler( "onBotDettach", root, function(shared)
@@ -34,7 +36,8 @@ end)
 
 addEventHandler( "onBotCommand", root, function(...)
     local bot = bots[source]
-    if bot and bot.syncer == client then
+    if bot and bot.syncer == client then        
+        bot.command = {...}
         triggerClientEvent("onClientBotCommand", source, ...)
     end
 end)

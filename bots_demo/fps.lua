@@ -22,7 +22,7 @@ function()
 	local width, height = 128, 48
 	local x, y = 0.5 * ( screenWidth - width ), 0
 	dxDrawRectangle(x + 1, y + 1, width - 2, height - 2, -2147483648)
-	dxDrawText( string.format( "FPS: %0.4g, %0.4g", avgFps, fps), x + 8, y + 8 )
-	dxDrawText( string.format( "PING: %0.4g", getPlayerPing (localPlayer)), x + 8, y + 24 )
+	dxDrawText( string.format( "FPS: %3.2f, %3.2f", avgFps, fps), x + 8, y + 8 )
+	dxDrawText( string.format( "PING: %d", getPlayerPing (localPlayer)), x + 8, y + 24 )
 end)
 
