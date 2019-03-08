@@ -1,0 +1,11 @@
+<meta>
+	<oop>true</oop>
+	<info author="Stm" description="BOTS-TEST-RES" version="0.1" type="gamemode" />
+	<min_mta_version server="1.5.5" client="1.5.5" />
+	<script src="server.lua" type="server" />
+	<script src="fps.lua" type="client" />
+	<script src="client.lua" type="client" />
+	<settings>
+		<setting name="DEBUG_TRACE" value="true" />
+	</settings>
+</meta>
