@@ -1,13 +1,6 @@
 local bots = {}
 local commands = {}
-
-local commands_code = 
-{ 
-    [1] = "idle", 
-    idle = 1,
-    [2] = "mov",
-    mov = 2
-}
+local commands_code
 
 addEvent("onBotAttach", true)
 addEvent("onBotDettach", true)
@@ -22,8 +15,26 @@ end
 
 local function botPulse(ped)
     local bot = bots[ped]
-    botAi( ped, bot )
+    local result
+    if bot.command and bot.command[1] then
+        result = commands[commands_code[bot.command[1]]](ped, bot, unpack(bot.command))
+    else
+        result = commands[commands_code[1]](ped, bot)
+    end
+    if not result then
+        bot.command = nil
+    end
 end
+
+addEventHandler( "onClientResourceStart", getResourceRootElement(), function()
+    commands_code = {}
+    local code = 1
+    for name,func in pairs(commands) do 
+        commands_code[code] = name
+        commands_code[name] = code
+        code = code + 1
+    end
+end)
 
 addEventHandler( "onClientElementStreamIn", root, function()
     if getElementType(source) == "ped" then
@@ -63,16 +74,19 @@ addEventHandler( "onClientBotDettach", root, function()
     end
 end)
 
-function botAi(ped, bot)
-    local result
-    if bot.command and bot.command[1] then
-        result = commands[commands_code[bot.command[1]]](ped, bot, unpack(bot.command))
-    else
-        result = commands[commands_code[1]](ped, bot)
+addEventHandler( "onClientRender", root, 
+function()
+    for ped, bot in pairs(bots) do
+        if isElementOnScreen( ped ) then
+            local color = isElementSyncer( ped ) and -2147418368 or -2130771968
+            local x,y,z = getPedBonePosition( ped, 6 )
+            dxDrawLine3D( x, y, z + 0.25, x, y, z + 0.35, color, 10 )
+        end
     end
-    if not result then
-        bot.command = nil
-    end
+end)
+
+function sendCommand(ped, command, ...)
+    triggerServerEvent("onBotCommand", ped, commands_code[command], ...)
 end
 
 function commands.idle(ped, bot, cmd)
@@ -83,9 +97,9 @@ function commands.idle(ped, bot, cmd)
     local target
     if dist < 0.8 then
         local target = ped.position - ped.matrix.forward * 35
-        triggerServerEvent("onBotCommand", ped, commands_code.mov, target.x, target.y)
+        sendCommand(ped, "mov", target.x, target.y)
     else
-        triggerServerEvent("onBotCommand", ped, commands_code.mov, bot.shared.x, bot.shared.y)
+        sendCommand(ped, "mov", bot.shared.x, bot.shared.y)
     end
 end
 
@@ -101,3 +115,4 @@ function commands.mov(ped, bot, cmd, x, y)
     setPedControlState( ped, "forwards", true )
     return true
 end
+

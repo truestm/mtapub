@@ -8,27 +8,33 @@ addEvent("onClientBotCommand", true)
 local bots = {}
 
 addEventHandler( "onBotAttach", root, function()
-    if not getElementSyncer( source ) then
+    if not bots[source] then bots[source] = {} end
+    local bot = bots[source]
+    if not bot.syncer then
         if setElementSyncer( source, client ) then
-            triggerClientEvent( client, "onClientBotAttach", source, bots[source] )
+            bot.syncer = client
+            triggerClientEvent( client, "onClientBotAttach", source, bot.shared )
         end
     end
 end)
 
 addEventHandler( "onBotDettach", root, function(shared)
-    bots[source] = shared
-    if getElementSyncer( source ) == client then
-        if setElementSyncer( source, true ) then
-            local syncer = getElementSyncer( source )
-            if syncer and syncer ~= client then
-                triggerClientEvent( syncer, "onClientBotAttach", source, shared )
-            end
+    local bot = bots[source]
+    if bot and bot.syncer == client then
+        bot.shared = shared
+        local syncer = setElementSyncer( source, true ) and getElementSyncer( source )
+        if syncer then
+            bot.syncer = syncer
+            triggerClientEvent( syncer, "onClientBotAttach", source, bot.shared )
+        else
+            bot.syncer = nil
         end
     end
 end)
 
 addEventHandler( "onBotCommand", root, function(...)
-    if getElementSyncer( source ) == client then
+    local bot = bots[source]
+    if bot and bot.syncer == client then
         triggerClientEvent("onClientBotCommand", source, ...)
     end
 end)
