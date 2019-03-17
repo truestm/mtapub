@@ -12,13 +12,36 @@ addEvent("onBotUpdate", true)
 
 local debug_info = false
 
-bindKey("num_sub", "down", function(key,state)
+addEvent("onTrace", true)
+local function trace(...)
+--[[
+    if debug_info then
+        local msg = ""
+        for i = 1,select("#",...) do
+            local value = select(i,...)
+            if type(value) == "string" then
+                msg = msg .. " " .. value
+            else
+                msg = msg .. " " .. inspect(value, {newline="", indent=""})
+            end
+        end
+        outputChatBox(msg)
+    end
+--]]
+end
+
+bindKey("f4", "down", function(key,state)
     debug_info = not debug_info
+    if debug_info then
+        addEventHandler( "onTrace", root, trace )
+    else
+        removeEventHandler( "onTrace", root, trace )
+    end
 end)
 
 local anim_move = false
 
-bindKey("num_mul", "down", function(key,state)
+bindKey("f3", "down", function(key,state)
     anim_move = not anim_move
 end)
 
@@ -45,8 +68,6 @@ addEventHandler( "onClientRender", root, function()
         for ped, bot in pairs(bots) do
             if isElementOnScreen( ped ) then
                 local color = isElementSyncer( ped ) and -2147418368 or -2130771968
-                --local x,y,z = getPedBonePosition( ped, 6 )
-                --dxDrawLine3D( x, y, z + 0.25, x, y, z + 0.35, color, 10 )
                 local x,y,z = getElementPosition( ped )
                 dxDrawLine3D( x, y, z + 0.8, x, y, z + 1, color, 10 )
                 local sx,sy,sz = getScreenFromWorldPosition(x, y, z + 1.2)
@@ -126,18 +147,21 @@ local function attachBotSyncer(ped, bot)
     triggerServerEvent("onBotAttach", ped, x, y, gz + 1.2)
 end
 
-local function attachBot(ped)
-    if not bots[ped] then
-        bots[ped] = { syncer = false, timer = assert(setTimer(botPulse, 200, 0, ped)) }
+local function attachBot(ped)    
+    local bot = bots[ped]
+    if not bot then
+        bot = { syncer = false, timer = assert(setTimer(botPulse, 200, 0, ped)) }
+        bots[ped] = bot
         addEventHandler("onClientBotCommand", ped, onClientBotCommand)
         addEventHandler("onClientElementDestroy", ped, onClientBotDestroy)
-        attachBotSyncer(ped, bot)
     end
+    attachBotSyncer(ped, bot)
 end
 
 local function dettachBotSyncer(ped, bot)
     if bot.syncer then
-        triggerServerEvent("onBotDettach", source, bot.shared)
+        trace("detach syncer", ped, bot.shared)
+        triggerServerEvent("onBotDettach", ped, bot.shared)
         bot.syncer = false
         bot.shared = nil
     end
@@ -157,12 +181,14 @@ end
 
 addEventHandler( "onClientElementStreamIn", root, function()
     if getElementType(source) == "ped" then 
+        trace("in", source)
         attachBot(source)
     end
 end)
 
 addEventHandler( "onClientElementStreamOut", root, function()
     if getElementType(source) == "ped" then
+        trace("out", source)
         dettachBot(source)
     end
 end)
@@ -170,6 +196,7 @@ end)
 addEventHandler( "onClientBotAttach", root, function(command,syncer,shared)
     local bot = bots[source]
     if bot then
+        trace("attach", source, syncer, shared)
         bot.command = command
         bot.syncer = syncer
         bot.shared = shared
@@ -179,7 +206,7 @@ end)
 addEventHandler( "onClientBotDettach", root, function()
     local bot = bots[source]
     if bot then
-        dettachBotSyncer(ped, bot)
+        dettachBotSyncer(source, bot)
     end
 end)
 
