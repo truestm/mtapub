@@ -1,7 +1,7 @@
 local fps = 0
 local avgTime = 0
 local avgFrames = 0
-local avgFps = getFPSLimit()
+local avgFps
 
 addEventHandler("onClientPreRender", root, 
 function( timeSlice )
@@ -33,7 +33,7 @@ setTimer(function()
 	realTime = getRealTime()
 	ping = getPlayerPing(localPlayer)
 	pingColor = getColor( ping, -maxPing )
-	fpsColor  = getColor( avgFps, getFPSLimit() * 1.125 )
+	fpsColor  = getColor( avgFps or fps or 0, getFPSLimit() * 1.125 )
 end, 1000, 0)
 
 local screenWidth, screenHeight = guiGetScreenSize()
@@ -49,7 +49,7 @@ function()
 	local width, height = 128, 56
 	local x, y = 0.5 * ( screenWidth - width ), 0
 	dxDrawRectangle(x + 1, y + 1, width - 2, height - 2, -2147483648)
-	drawMetrix( x + 2, y + 4,  "FPS:",  string.format( "%3.2f, %3.2f", avgFps, fps ), fpsColor )
+	drawMetrix( x + 2, y + 4,  "FPS:",  string.format( "%3.2f, %3.2f", avgFps or fps or 0, fps ), fpsColor )
 	drawMetrix( x + 2, y + 20, "PING:", string.format( "%d", ping ), pingColor )
 	drawMetrix( x + 2, y + 36, "TIME:", string.format( "%02d:%02d:%02d", realTime.hour, realTime.minute, realTime.second ) )
 end)

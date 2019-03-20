@@ -1,0 +1,6 @@
+<meta>
+	<oop>true</oop>
+	<info author="Stm" description="SHOW-FPS-PING" version="0.1" />
+	<min_mta_version server="1.5.5" client="1.5.5" />
+	<script src="fps.lua" type="client" />
+</meta>
