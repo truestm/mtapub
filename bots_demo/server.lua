@@ -4,14 +4,15 @@ addEvent("onBotCommand", true)
 addEvent("onClientBotAttach", true)
 addEvent("onClientBotDettach", true)
 addEvent("onClientBotCommand", true)
-addEvent("onBotUpdate", true)
+addEvent("onBotUpdatePosition", true)
+addEvent("onBotDamage", true)
 
 local bots = {}
 local players = {}
 
 addEvent("onTrace", true)
-local function trace(...)
-    --triggerClientEvent(client,"onTrace",client,...)
+function trace(...)
+    triggerClientEvent(client,"onTrace",client,...)
 end
 
 local function attachBot( ped, player )
@@ -43,8 +44,10 @@ local function setSyncer( ped, bot, syncer, x, y, z )
         setElementSyncer( ped, syncer )
     else
         bot.syncer = nil
-        setElementFrozen( ped, true )
-        setElementCollisionsEnabled( ped, false ) 
+        if not isPedDead( ped ) then
+            setElementFrozen( ped, true )
+            setElementCollisionsEnabled( ped, false ) 
+        end
     end
 end
 
@@ -58,7 +61,6 @@ local function detachBot( ped, player, shared )
         if not bot.players[syncer] or syncer == client then
             bot.syncer = next(bot.players)
         end
-        trace("set syncer", bot.syncer)
         setSyncer( ped, bot, bot.syncer )
         if bot.syncer then
             triggerClientEvent( bot.syncer, "onClientBotAttach", ped, bot.command, true, bot.shared )
@@ -79,8 +81,7 @@ end
 
 addEventHandler( "onBotAttach", root, function(x,y,z)
     local bot = attachBot( source, client )
-    if not bot.syncer then
-        trace("attach syncer", bot.syncer)
+    if not bot.syncer or bot.syncer == client then
         setSyncer( source, bot, client, x, y, z )
         triggerClientEvent( client, "onClientBotAttach", source, bot.command, true, bot.shared )
     else
@@ -96,18 +97,38 @@ addEventHandler( "onBotDettach", root, function(shared)
     detachBot( source, client, shared )
 end)
 
-addEventHandler( "onBotUpdate", root, function(x,y,z)
+addEventHandler( "onBotUpdatePosition", root, function(x,y,z)
     local bot = bots[source]
     if bot and bot.syncer == client then
         local syncer = getElementSyncer( source )
         if syncer ~= client then
             if syncer then
-                trace("update syncer lost, new",syncer)
                 triggerClientEvent( client, "onClientBotDettach", source )
             else
                 setElementPosition( source, x,y,z, false )
                 setElementSyncer( source, client )
             end
+        end
+    end
+end)
+
+local function doDamageBot( ped, attacker, weapon, bodypart, loss )
+    local health = getElementHealth( source )
+    health = health - loss
+    if health <= 1 then
+        killPed( source, attacker, weapon, bodypart )
+    else
+        setElementHealth( source, math.max( 0, health ) )
+    end
+end
+
+addEventHandler( "onBotDamage", root, function( attacker, weapon, bodypart, loss )
+    if attacker == client then
+        doDamageBot( source, attacker, weapon, bodypart, loss )
+    elseif getElementType(attacker) == "ped" then
+        local bot = bots[attacker]
+        if bot and bot.syncer == client then
+            doDamageBot( source, attacker, weapon, bodypart, loss )
         end
     end
 end)
@@ -118,10 +139,9 @@ addEventHandler( "onBotCommand", root, function(...)
         local syncer = getElementSyncer( source )
         if not syncer or syncer == client then
             bot.command = {...}
-            triggerClientEvent("onClientBotCommand", source, ...)
+            triggerClientEvent( "onClientBotCommand", source, bot.command )
         else
             if syncer then 
-                trace("command syncer lost, new",syncer)
                 triggerClientEvent( client, "onClientBotDettach", source )
             end
         end
@@ -141,12 +161,37 @@ local function botDestroy()
     bots[source] = nil
 end
 
-local function createBot(skin,x,y,z)
+local function botRespawn(ped)
+    local bot = bots[ped]
+    if bot then
+        local skin = getElementModel(ped)
+        local x,y,z = unpack(bot.respawn)
+        destroyElement(ped)
+        createBot(skin, x,y,z)
+    end
+end
+
+local function botWasted()
+    local bot = bots[source]
+    if bot then
+--        if bot.syncer then
+--            triggerClientEvent( client, "onClientBotDettach", source )
+--        end
+        setTimer(botRespawn, 20000, 1, source)
+    end
+end
+
+function createBot(skin,x,y,z)
     local ped = createPed( skin, x, y, z )
-    bots[ped] = { shared = { id = id }, players = {} }
+    local bot = { shared = {}, players = {}, respawn = {x, y, z} }
+    bots[ped] = bot
+    --setElementHealth( ped, 10000 )
     addEventHandler( "onElementDestroy", ped, botDestroy )
+    addEventHandler( "onPedWasted", ped, botWasted )
     setElementFrozen( ped, true )
-    setElementCollisionsEnabled( ped, false ) 
+    setElementCollisionsEnabled( ped, false )
+    giveWeapon( ped, 31, 9999, true )
+    return ped, bot
 end
 
 addCommandHandler("bot", function(player, command, skin)
@@ -154,7 +199,8 @@ addCommandHandler("bot", function(player, command, skin)
     local id = octree_nearest(x,y,z, 10)
     if id then
         local nx,ny,nz = get_path_node(id)
-        createBot(tonumber(skin), nx,ny,nz + 1)
+        local ped, bot = createBot(tonumber(skin), nx,ny,nz + 1)
+        bot.shared.id = id
     end
 end)
 
@@ -175,3 +221,10 @@ addEventHandler( "onResourceStart", resourceRoot, function()
     end
 --]]
 end)
+
+addEventHandler( "onResourceStop", resourceRoot, function()
+    for ped in pairs(bots) do 
+        destroyElement(ped) 
+    end
+end)
+

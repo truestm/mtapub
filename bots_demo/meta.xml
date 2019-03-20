@@ -2,11 +2,13 @@
 	<oop>true</oop>
 	<info author="Stm" description="BOTS-TEST-RES" version="0.1" />
 	<min_mta_version server="1.5.5" client="1.5.5" />
-	<script src="server.lua" type="server" />
-	<script src="fps.lua" type="client" />
-	<script src="stream.lua" type="shared" />
-	<script src="client.lua" type="client" />
-	<script src="paths.lua" type="shared" />
+	<script src="server.lua" type="server" cache="false" />
+	<script src="stream.lua" type="client" cache="false" />
+	<script src="paths.lua" type="shared" cache="false" />
+	<script src="client.lua" type="client" cache="false" />
+	<script src="commands.lua" type="client" cache="false" />
+	<script src="commands.attack.lua" type="client" cache="false" />
+	<script src="ai.lua" type="client" cache="false" />
 	<file src="ped_paths.bin" type="shared" />	
 	<settings>
 		<setting name="DEBUG_TRACE" value="true" />

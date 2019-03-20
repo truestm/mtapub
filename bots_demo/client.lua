@@ -1,6 +1,10 @@
+local BOT_PULSE_INTERVAL = 200
+
+BOT_COMMANDS = {}
+BOT_COMMANDS_CODE = {}
+BOT_CONTROLS = { "forwards", "left", "right", "aim_weapon", "fire" }
+
 local bots = {}
-local commands = {}
-local commands_code
 
 addEvent("onBotAttach", true)
 addEvent("onBotDettach", true)
@@ -8,13 +12,14 @@ addEvent("onBotCommand", true)
 addEvent("onClientBotAttach", true)
 addEvent("onClientBotDettach", true)
 addEvent("onClientBotCommand", true)
-addEvent("onBotUpdate", true)
+addEvent("onBotUpdatePosition", true)
+addEvent("onBotDamage", true)
 
 local debug_info = false
 
 addEvent("onTrace", true)
-local function trace(...)
---[[
+function trace(...)
+----[[
     if debug_info then
         local msg = ""
         for i = 1,select("#",...) do
@@ -26,6 +31,7 @@ local function trace(...)
             end
         end
         outputChatBox(msg)
+        outputDebugString(msg)
     end
 --]]
 end
@@ -37,12 +43,6 @@ bindKey("f4", "down", function(key,state)
     else
         removeEventHandler( "onTrace", root, trace )
     end
-end)
-
-local anim_move = false
-
-bindKey("f3", "down", function(key,state)
-    anim_move = not anim_move
 end)
 
 local function drawNode( nodeId )
@@ -81,234 +81,233 @@ addEventHandler( "onClientRender", root, function()
     end
 end)
 
-local function onClientBotCommand(...)
-    bots[source].command = {...}
+function setBotCommand( bot, command )
+    bot.command = command
+    bot.stage = nil
+    bot.time = nil
 end
 
-local function botUpdate(ped, bot)
+local function onClientBotCommand( command )
+    invokeBotByElement( source, setBotCommand, command )
+end
+
+local function botUpdate( bot )
     if bot.syncer then 
-        if not isElementSyncer(ped) then
-            local x,y,z = getElementPosition(ped)
+        if not isElementSyncer(bot.ped) then
+            local x,y,z = getElementPosition(bot.ped)
             if bot.x and bot.y and bot.z then
                 local dx, dy, dz = x - bot.x, y - bot.y, z - bot.z
                 local d = dx*dx + dy*dy + dz*dz                            
                 if d < 0.25 then return end            
             end
             bot.x,bot.y,bot.z = x,y,z
-            triggerServerEvent("onBotUpdate", ped, x,y,z)
+            triggerServerEvent("onBotUpdatePosition", bot.ped, x,y,z)
         end
     end
 end
 
-local function botPulse(ped)
-    local bot = bots[ped]
-    botUpdate(ped, bot)
-    local result
-    if bot.command and bot.command[1] then
-        result = commands[commands_code[bot.command[1]]](ped, bot, unpack(bot.command))
-    else
-        result = commands.idle(ped, bot)
+local function botCommand( bot )
+    local code, func, time = getBotCommand( bot )
+    local result = func( bot, time, getBotCommandArgs( bot ) )
+    if not result then return end
+    if result == true then
+        bot.time = bot.time and bot.time + BOT_PULSE_INTERVAL or BOT_PULSE_INTERVAL
+        return true 
     end
+    bot.stage = result
+    bot.time = nil
+    return true
+end
+
+local function botPulse( ped )
+    local bot = bots[ped]
+    botUpdate( bot )
+    local result = ( not bot.syncer or botAiPulse( bot ) ) and botCommand( bot )
     if not result then
         bot.command = nil
+        bot.stage = nil
+        bot.time = nil
         if bot.syncer then 
-            botAi( ped, bot ) 
+            botAi( bot ) 
         end
     end
 end
 
 addEventHandler( "onClientResourceStart", resourceRoot, function()
-    commands_code = {}
-    local code = 1
     local names = {}    
-    for name,func in pairs(commands) do 
-        table.insert(names,name) 
-    end
+    for name,func in pairs(BOT_COMMANDS) do table.insert(names,name) end
     table.sort(names)
-    for _,name in ipairs(names) do
-        commands_code[code] = name
-        commands_code[name] = code
-        code = code + 1
+    for code = 1, #names do
+        BOT_COMMANDS_CODE[code] = names[code]
+        BOT_COMMANDS_CODE[names[code]] = code
     end
 end)
 
+local function onClientPedDamage( attacker, weapon, bodypart, loss )
+    if attacker == localPlayer then
+        triggerServerEvent( "onBotDamage", source, attacker, weapon, bodypart, loss )
+    elseif getElementType(attacker) == "ped" then
+        local bot = bots[source]
+        if bot and bot.syncer then
+            triggerServerEvent( "onBotDamage", source, attacker, weapon, bodypart, loss )
+        end
+    end
+    cancelEvent()
+end
+
 local function onClientBotDestroy()
-    local bot = bots[source]
-    if bot then
-        killTimer( bot.timer ) 
-        bot.timer = nil
-        bots[source] = nil
+    invokeBotByElement( source, removeBot )
+end
+
+local function onClientPedWasted( killer, weapon, bodypart, loss )
+    invokeBotByElement( source, removeBot )
+end
+
+local function attachBotSyncer(bot, command, syncer, shared )
+    if syncer and not bot.syncer then
+        botAiInit( bot )
     end
+    bot.syncer = syncer
+    bot.shared = shared
+    bot.command = command
 end
 
-local function attachBotSyncer(ped, bot)
-    local x,y,z = getElementPosition(ped)
-    local gz = getGroundPosition( x, y, z + 1.2 )
-    triggerServerEvent("onBotAttach", ped, x, y, gz + 1.2)
-end
-
-local function attachBot(ped)    
-    local bot = bots[ped]
-    if not bot then
-        bot = { syncer = false, timer = assert(setTimer(botPulse, 200, 0, ped)) }
-        bots[ped] = bot
-        addEventHandler("onClientBotCommand", ped, onClientBotCommand)
-        addEventHandler("onClientElementDestroy", ped, onClientBotDestroy)
-    end
-    attachBotSyncer(ped, bot)
-end
-
-local function dettachBotSyncer(ped, bot)
+local function dettachBotSyncer( bot )
     if bot.syncer then
-        trace("detach syncer", ped, bot.shared)
-        triggerServerEvent("onBotDettach", ped, bot.shared)
+        botAiRelease( bot )
+        triggerServerEvent( "onBotDettach", bot.ped, bot.shared )
         bot.syncer = false
         bot.shared = nil
     end
 end
 
-local function dettachBot(ped)
-    local bot = bots[ped]
-    if bot then
-        killTimer(bot.timer)
-        bot.timer = nil
-        dettachBotSyncer(ped, bot)
-        removeEventHandler("onClientElementDestroy", ped, onClientBotDestroy)
-        removeEventHandler("onClientBotCommand", ped, onClientBotCommand)
-        bots[ped] = nil
-    end
+function getOrAddBot( ped )
+    local bot = bots[ped]    
+    if bot then return bot end
+    bot = { 
+        syncer = false, 
+        ped = ped,
+        timer = assert( setTimer( botPulse, BOT_PULSE_INTERVAL, 0, ped ) )
+    }
+    bots[ped] = bot
+    addEventHandler("onClientBotCommand", ped, onClientBotCommand)
+    addEventHandler("onClientPedDamage", ped, onClientPedDamage)
+    addEventHandler("onClientPedWasted", ped, onClientPedWasted)
+    addEventHandler("onClientElementDestroy", ped, onClientBotDestroy)
+    return bot
 end
 
-addEventHandler( "onClientElementStreamIn", root, function()
-    if getElementType(source) == "ped" then 
-        trace("in", source)
-        attachBot(source)
+function removeBot( bot )
+    dettachBotSyncer( bot )
+    if bot.timer then
+        killTimer( bot.timer ) 
+        bot.timer = nil
+    end
+    removeEventHandler("onClientElementDestroy", bot.ped, onClientBotDestroy)
+    removeEventHandler("onClientBotCommand", bot.ped, onClientBotCommand)
+    removeEventHandler("onClientPedDamage", bot.ped, onClientPedDamage)
+    removeEventHandler("onClientPedWasted", bot.ped, onClientPedWasted)
+    bots[bot.ped] = nil
+    bot.ped = nil
+end
+
+addEventHandler( "onClientElementStreamInDelayed", root, function()
+    if getElementType(source) == "ped" and not isPedDead( source ) then 
+        local bot = getOrAddBot( source )
+        local x,y,z = getElementPosition( bot.ped )
+        local gz = getGroundPosition( x, y, z + 1.2 )
+        triggerServerEvent("onBotAttach", bot.ped, x, y, gz + 1.2)
     end
 end)
 
-addEventHandler( "onClientElementStreamOut", root, function()
+addEventHandler( "onClientElementStreamOutDelayed", root, function()
     if getElementType(source) == "ped" then
-        trace("out", source)
-        dettachBot(source)
+        invokeBotByElement( source, removeBot )
     end
 end)
 
-addEventHandler( "onClientBotAttach", root, function(command,syncer,shared)
-    local bot = bots[source]
-    if bot then
-        trace("attach", source, syncer, shared)
-        bot.command = command
-        bot.syncer = syncer
-        bot.shared = shared
-    end
+addEventHandler( "onClientBotAttach", root, function( command, syncer, shared )
+    invokeBotByElement( source, attachBotSyncer, command, syncer, shared )
 end)
 
 addEventHandler( "onClientBotDettach", root, function()
-    local bot = bots[source]
-    if bot then
-        dettachBotSyncer(source, bot)
-    end
+    invokeBotByElement( source, dettachBotSyncer )
 end)
 
 addEventHandler( "onClientResourceStart", resourceRoot, function()
 	load_paths()
 end)
 
-function botAi( ped, bot )    
-    if not bot.shared or not bot.shared.id then
-        local x,y,z = getElementPosition(ped)
-        local nodeId = octree_nearest( x,y,z, 10 )
-        if not nodeId then return end
-        if not bot.shared then bot.shared = {} end
-        bot.shared.id = nodeId
-    end
-    local x,y,z,count = get_path_node(bot.shared.id)
-    local nextId
-    if count > 1 then
-        local rand = math.random(count - 1)
-        local index = 1
-        while rand > 0 do
-            nextId = get_path_adjacent_node(bot.shared.id, index)
-            if not bot.shared.prevId or nextId ~= bot.shared.prevId then
-                rand = rand - 1
-            end
-            index = index + 1
-        end
+function sendCommand( bot, command, ...)
+    triggerServerEvent("onBotCommand", bot.ped, BOT_COMMANDS_CODE[command], ...)
+end
+
+function getBotRotation(x0,y0,x,y)
+    return 57.295779513082323 * (6.2831853071796 - math.atan2 ( ( x - x0 ), ( y - y0 ) ) % 6.2831853071796)
+end
+
+function getBotTargetPrediction(target, time)
+    local x, y, z = getElementPosition(target)
+    local vx, vy, vz = getElementVelocity(target)
+    local k = time / 20
+    return x + vx * k, y + vy * k, z + vz * k
+end
+
+function setBotRotationTo( bot, x,y,z )
+    local x0, y0, z0 = getElementPosition( bot.ped )
+    local yaw = getBotRotation(x0,y0,x,y)
+    setElementRotation( bot.ped, 0, 0, yaw, "default", true )
+    return x0, y0, z0, yaw
+end
+
+function setBotRotationToTarget( bot, target, time )
+    local x, y, z = getBotTargetPrediction( target, time or BOT_PULSE_INTERVAL )
+    local x0, y0, z0, yaw = setBotRotationTo( bot, x,y,z )
+    return x0, y0, z0, x, y, z, yaw
+end
+
+function getBotByElement( ped )
+    return bots[ped]
+end
+
+function invokeBotByElement( ped, method, ... )
+    local bot = bots[ped]
+    if bot then return method( bot, ... ) end
+end
+
+function getBotCommand( bot )    
+    if bot.command and bot.command[1] then
+        return bot.command[1], bot.stage or BOT_COMMANDS[BOT_COMMANDS_CODE[bot.command[1]]], bot.time
     else
-        nextId = get_path_adjacent_node(bot.shared.id, 1)
-    end
-    bot.shared.prevId = bot.shared.id
-    bot.shared.id = nextId
-    if not anim_move then
-        sendCommand( ped, "pmov", bot.shared.id )
-    else
-        sendCommand( ped, "pamov", bot.shared.id, "ped", "FightShF" )
+        return BOT_COMMANDS_CODE.idle, bot.stage or BOT_COMMANDS.idle, bot.time
     end
 end
 
-function sendCommand(ped, command, ...)
-    triggerServerEvent("onBotCommand", ped, commands_code[command], ...)
+function getBotCommandArgs( bot )
+    if bot.command then
+        return select(2,unpack(bot.command))
+    end
 end
 
-function commands.idle(ped, bot, cmd)
-    setPedControlState( ped, "forwards", false )
+function botStop( bot )
+    for _,control in pairs(BOT_CONTROLS) do
+        setPedControlState( bot.ped, control, false )
+    end
+    setPedAnimation( bot.ped )
 end
 
-function commands.mov(ped, bot, cmd, x, y)
-    local x0,y0,z0 = getElementPosition(ped)
-    local dist = getDistanceBetweenPoints2D(x0,y0,x,y)
-    if dist < 0.8 then
-        return
-    end
-    local yaw = 6.2831853071796 - math.atan2 ( ( x - x0 ), ( y - y0 ) ) % 6.2831853071796
-    setElementRotation( ped, 0, 0, math.deg(yaw), "default", true )
-    setPedControlState( ped, "forwards", true )
-    return true
+function processBotLineOfSight( x0, y0, z0, x, y, z, ignore )
+    return processLineOfSight( x0, y0, z0, x, y, z,
+        true, --bool checkBuildings
+        true, --bool checkVehicles
+        true, --bool checkPlayers
+        true, --bool checkObjects
+        true, --bool checkDummies
+        false, --bool seeThroughStuff
+        false, --bool ignoreSomeObjectsForCamera
+        false, --bool shootThroughStuff
+        ignore,
+        false, --bool includeWorldModelInformation
+        true --bool bIncludeCarTyres 
+    )
 end
-
-function commands.pmov(ped, bot, cmd, nodeId)
-    setPedAnimation( ped )
-    if not nodeId then
-        return
-    end
-
-    local x0,y0,z0 = getElementPosition(ped)
-    local x,y,z = get_path_node(nodeId)
-    local dist = getDistanceBetweenPoints2D(x0,y0,x,y)
-    if dist < 0.8 then        
-        return
-    end
-    
-    bot.dist = dist
-
-    local yaw = 6.2831853071796 - math.atan2 ( ( x - x0 ), ( y - y0 ) ) % 6.2831853071796
-    setElementRotation( ped, 0, 0, math.deg(yaw), "default", true )
-    setPedControlState( ped, "forwards", true )
-    return true
-end
-
-function commands.pamov(ped, bot, cmd, nodeId, block, anim)
-    if not nodeId then
-        return
-    end
-
-    local currentBlock, currentAnim = getPedAnimation( ped )
-    if currentBlock ~= block or currentAnim ~= anim then
-        setPedAnimation( ped, block, anim )
-    end
-
-    local x0,y0,z0 = getElementPosition(ped)
-    local x,y,z = get_path_node(nodeId)
-    local dist = getDistanceBetweenPoints2D(x0,y0,x,y)
-    if dist < 0.8 then        
-        return
-    end
-    
-    bot.dist = dist
-
-    local yaw = 6.2831853071796 - math.atan2 ( ( x - x0 ), ( y - y0 ) ) % 6.2831853071796
-    setElementRotation( ped, 0, 0, math.deg(yaw), "default", true )
-    setPedControlState( ped, "forwards", true )
-    return true
-end
-
