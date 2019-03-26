@@ -58,7 +58,7 @@ local function detachBot( ped, player, shared )
     if bot.syncer == player then
         bot.shared = shared
         bot.syncer = getElementSyncer( ped )
-        if not bot.players[syncer] or syncer == client then
+        if not bot.players[bot.syncer] or bot.syncer == client then
             bot.syncer = next(bot.players)
         end
         setSyncer( ped, bot, bot.syncer )
@@ -113,24 +113,20 @@ addEventHandler( "onBotUpdatePosition", root, function(x,y,z)
 end)
 
 local function doDamageBot( ped, attacker, weapon, bodypart, loss )
-    local health = getElementHealth( source )
+    local health = getElementHealth( ped )
     health = health - loss
     if health <= 1 then
-        killPed( source, attacker, weapon, bodypart )
+        killPed( ped, attacker, weapon, bodypart )
     else
-        setElementHealth( source, math.max( 0, health ) )
+        setElementHealth( ped, math.max( 0, health ) )
     end
 end
 
 addEventHandler( "onBotDamage", root, function( attacker, weapon, bodypart, loss )
-    if attacker == client then
-        doDamageBot( source, attacker, weapon, bodypart, loss )
-    elseif getElementType(attacker) == "ped" then
-        local bot = bots[attacker]
-        if bot and bot.syncer == client then
-            doDamageBot( source, attacker, weapon, bodypart, loss )
-        end
-    end
+    local bot = bots[source]
+	if bot and bot.syncer == client then
+		doDamageBot( source, attacker, weapon, bodypart, loss )
+	end
 end)
 
 addEventHandler( "onBotCommand", root, function(...)
