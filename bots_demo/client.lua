@@ -144,14 +144,10 @@ addEventHandler( "onClientResourceStart", resourceRoot, function()
 end)
 
 local function onClientPedDamage( attacker, weapon, bodypart, loss )
-    if attacker == localPlayer then
-        triggerServerEvent( "onBotDamage", source, attacker, weapon, bodypart, loss )
-    elseif getElementType(attacker) == "ped" then
-        local bot = bots[source]
-        if bot and bot.syncer then
-            triggerServerEvent( "onBotDamage", source, attacker, weapon, bodypart, loss )
-        end
-    end
+	local bot = bots[source]
+	if bot and bot.syncer then
+		triggerServerEvent( "onBotDamage", source, attacker, weapon, bodypart, loss )
+	end
     cancelEvent()
 end
 
