@@ -1,6 +1,6 @@
 <meta>
 	<oop>true</oop>
-	<info author="Stm" description="deadline" version="0.1" type="gamemode" />
+	<info author="Stm" description="deadline" version="0.1" />
 	<min_mta_version server="1.5.5" client="1.5.5" />
 	<file src="tail.png" type="client" />
 	<script src="server.lua" type="server" />
