@@ -10,38 +10,15 @@ function addEventHandler(...) end
 function addCommandHandler(...) end
 ]]
 
-local fps = 0
-local avgTime = 0
-local avgFrames = 0
-local avgFps = 0
-
---local screenWidth, screenHeight = guiGetScreenSize()
-
-local function OnClientPreRender( timeSlice )
-    fps = ( 1 / timeSlice ) * 1000
-	avgFrames = avgFrames + 1
-	avgTime = avgTime + timeSlice
-	if avgTime > 10000 then
-		avgFps = avgFrames / avgTime * 1000
-		avgFrames = 0
-		avgTime = 0
-	end
-end
-addEventHandler("onClientPreRender", root, OnClientPreRender)
-
-function getCurrentFPS()
-    return fps
-end
-
 local timer
-local LIFETIME = 5000
+local LIFETIME = 4500
 local vehicles = {}
 local COLOR = tocolor(255,0,0,255)
 local COLOR_BB = tocolor(0,255,0,128)
 local COLOR_IN_BB = tocolor(0,0,255,128)
-local MIN_RADIUS = 0.5
+local MIN_RADIUS = 1
 local boundingBoxes
-
+local respawn_x, respawn_y, respawn_z
 
 addEventHandler( "onClientElementStreamIn", root,
 function()
@@ -154,10 +131,15 @@ local function pulse()
 	end
 end
 
+local function respawn()
+	setTimer(triggerServerEvent, 5000, 1, "DL:onSpawn", localPlayer, respawn_x, respawn_y, respawn_z)
+end
+
 local function stop()
 	if timer then 
 		killTimer( timer ) 
 		timer = nil
+		removeEventHandler( "onClientPlayerWasted", localPlayer, respawn )
 	end
 	boundingBoxes = nil
 	local vehicle = getLocalVehicle()
@@ -166,9 +148,10 @@ end
 
 local function start()
 	stop()
-	timer = setTimer( pulse, 100, 0 )	
-	local vehicle = getLocalVehicle()
-	if vehicle then vehicles[vehicle] = {} end
+	timer = setTimer( pulse, 100, 0 )		
+	respawn_x, respawn_y, respawn_z = getElementPosition(localPlayer)
+	addEventHandler( "onClientPlayerWasted", localPlayer, respawn )
+	triggerServerEvent("DL:onSpawn", localPlayer, respawn_x, respawn_y, respawn_z)
 end
 
 local texTail = dxCreateTexture("tail.png")
@@ -215,7 +198,7 @@ local function draw(now)
 			-- in future replace to dxDrawMaterialPrimitive3d
 				dxDrawMaterialSectionLine3D( prev_x,prev_y,prev_z,
 					next_x,next_y,next_z, 
-					0,0,32,32,texTail, MIN_RADIUS + MIN_RADIUS, COLOR, false, next_x + nx, next_y + ny, next_z )
+					0,0,32,32,texTail, ( MIN_RADIUS + MIN_RADIUS ) * 0.6, COLOR, false, next_x + nx, next_y + ny, next_z )
 				prev_x,prev_y,prev_z = x,y,z
 			end
 		end
@@ -247,16 +230,12 @@ local function check(now)
 		local x,y,z = getElementPosition( vehicle )
 		local box = inBoundingBox(boundingBoxes,x,y,z)
 		if box then
-			setTimer( triggerServerEvent, 50, 1, "DL:onVehicleHit", localPlayer, getVehicleOccupant(vehicle) )
-			setElementHealth( vehicle, 0 )
-			setTimer( blowVehicle, 1000, 1, vehicle, true )
+			setTimer( triggerServerEvent, 50, 1, "DL:onVehicleHit", vehicle, localPlayer, getVehicleOccupant(vehicle) )
 		end
 	end
 end
 
 local function OnClientRender()	
-	dxDrawText( string.format("%g, %g", avgFps, fps), 0, 0 )
-
 	local now = getTickCount()
 	draw(now)
 	check(now)
@@ -265,4 +244,3 @@ addEventHandler( "onClientRender", root, OnClientRender )
 
 addCommandHandler("dlstart", start)
 addCommandHandler("dlstop", stop)
-start()
