@@ -87,10 +87,18 @@ function quaternion_conjugate( x, y, z, w )
 	return -x, -y, -z, w
 end
 
-function quaternion_inverse( x, y, z, w )
-	local qx, qy, qz, qw = quaternion_conjugate( x,y,z,w )
+function quaternion_normalize_sqrt( x, y, z, w )
 	local norm = 1 / ( x*x + y*y + z*z + w*w )
-	return qx * norm, qy * norm, qz * norm, qw * norm
+	return x * norm, y * norm, z * norm, w * norm
+end
+
+function quaternion_normalize( x, y, z, w )
+	local norm = 1 / math.sqrt( x*x + y*y + z*z + w*w )
+	return x * norm, y * norm, z * norm, w * norm
+end
+
+function quaternion_inverse( x, y, z, w )
+	return quaternion_normalize_sqrt( quaternion_conjugate( x,y,z,w ) )
 end
 
 function quaternion_transform( x, y, z, w, vx, vy, vz )
