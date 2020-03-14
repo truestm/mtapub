@@ -150,14 +150,13 @@ end
 function primitive.render( itemsCache, updated )
 	if itemsCache then
 		for i,cache in ipairs(itemsCache) do
-			if not updated then
-				if cache[1] then
-					primitive.prepare_item( cache[2], cache, unpack(cache[3]) )
-					updated = true
-				end
+			local childsUpdated = updated
+			if not ( childsUpdated or cache[1] ) then
+				primitive.prepare_item( cache[2], cache, unpack(cache[3]) )
+				childsUpdated = true
 			end
 			cache[4](unpack(cache[5]))
-			primitive.render(cache[6], updated)
+			primitive.render(cache[6], childsUpdated)
 		end
 	end
 end
@@ -180,6 +179,12 @@ local speedometer = primitive.prepare({
 					{ 1,  0, tocolor(255,255,255) }, 
 					{ 0,  1, tocolor(255,255,255) }
 				} 			
+			},
+			{ "text", x = 0.5, y = 0.8, w = 0.5, h = 0.2, font = "pricedown", static = false,
+				text = function()
+					local element = getPedOccupiedVehicle( localPlayer ) or localPlayer
+					return tostring(math.floor(100 * getDistanceBetweenPoints3D(0,0,0, getElementVelocity( element ))))
+				end 
 			}
 		}
 	}
