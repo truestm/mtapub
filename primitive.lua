@@ -1,4 +1,4 @@
-local primitive = { calculate = {}, draw = {} }
+local primitive = { calculate = {}, draw = {}, refresh = true }
 
 local function getValue(value, ...)
 	if type(value) == "function" then
@@ -60,7 +60,7 @@ function primitive.calculate.text( item, cache, parent_x, parent_y, parent_w, pa
 	return x,y,w,h
 end
 
-function primitive.draw.text( text, xl, yl, xh, yh, font, r, rx, ry )
+function primitive.draw.text( childs, updated, text, xl, yl, xh, yh, font, r, rx, ry )
 	dxDrawText( text, xl, yl, xh, yh,
 		nil, --color, 
 		1, --scaleXY
@@ -76,6 +76,7 @@ function primitive.draw.text( text, xl, yl, xh, yh, font, r, rx, ry )
 		rx, --fRotationCenterX, 
 		ry  --fRotationCenterY
 	)
+	primitive.render( childs, updated )
 end
 
 function primitive.calculate.primitive( item, cache, parent_x, parent_y, parent_w, parent_h )
@@ -86,24 +87,56 @@ function primitive.calculate.primitive( item, cache, parent_x, parent_y, parent_
 	return getAbsPosition( parent_x, parent_y, parent_w, parent_h, x,y,w,h )
 end
 
-function primitive.draw.primitive( primitiveType, vertices )
-	dxDrawPrimitive( primitiveType, false, unpack(vertices) )	
+function primitive.draw.primitive( childs, updated, primitiveType, vertices )
+	dxDrawPrimitive( primitiveType, false, unpack(vertices) )
+	primitive.render( childs, updated )
 end
 
 function primitive.calculate.rect( item, cache, parent_x, parent_y, parent_w, parent_h )
 	local x,y,w,h = getAbsPosition( parent_x, parent_y, parent_w, parent_h, getItemPosition( item ) )
-	cache[1], cache[2], cache[3], cache[4], cache[5] = parent_x + x, parent_y + y, w, h, getValue(item.c)
+	cache[1], cache[2], cache[3], cache[4], cache[5] = x, y, w, h, getValue(item.c)
 	return x,y,w,h
 end
 
-function primitive.draw.rect( x, y, w, h, c )
+function primitive.draw.rect( childs, updated, x, y, w, h, c )
 	dxDrawRectangle( x, y, w, h, c, false, false )
+	primitive.render( childs, updated )
 end
 
 function primitive.calculate.block( item, cache, parent_x, parent_y, parent_w, parent_h )
 	local x,y,w,h = getAbsPosition( parent_x, parent_y, parent_w, parent_h, getItemPosition( item ) )
-	cache[1], cache[2], cache[3], cache[4] = parent_x + x, parent_y + y, w, h
+	w, h = math.floor( w ), math.floor( h )
+	cache[1], cache[2], cache[3], cache[4] = x, y, w, h
+	if getValue(item.buffered) then
+		if not cache[5] then 
+			cache[5] = assert(dxCreateRenderTarget( w, h, true ))
+		else
+			local rw,rh = dxGetMaterialSize( cache[5] )
+			if rw ~= w or rh ~= h then
+				destroyElement( cache[5] )
+				cache[5] = assert(dxCreateRenderTarget( w, h, true ))
+			end
+		end
+		return 0,0,w,h
+	end
 	return x,y,w,h
+end
+
+function primitive.draw.block( childs, updated, x, y, w, h, rt )
+	if rt then
+		if updated or primitive.refresh then
+			dxSetRenderTarget( rt, true )
+			dxSetBlendMode("modulate_add")
+			primitive.render( childs, updated )
+			dxSetBlendMode("blend")
+			dxSetRenderTarget()
+		end
+		dxSetBlendMode("add")
+		dxDrawImage( x, y, w, h, rt )
+		dxSetBlendMode("blend")
+	else
+		primitive.render( childs, updated )
+	end
 end
 
 function primitive.prepare_function_item( func, index, cache, x, y, w, h )
@@ -143,7 +176,11 @@ end
 function primitive.prepare_item( item, cache, parent_x, parent_y, parent_w, parent_h )
 	cache[1] = getValue(item.static) ~= false
 	cache[2] = item
-	cache[3] = {parent_x, parent_y, parent_w, parent_h}
+	if not cache[3] then cache[3] = {} end
+	cache[3][1] = parent_x
+	cache[3][2] = parent_y
+	cache[3][3] = parent_w
+	cache[3][4] = parent_h
 	cache[4] = primitive.draw[item[1]]
 	if not cache[5] then cache[5] = {} end
 	local x,y,w,h = primitive.calculate[ item[1] ]( item, cache[5], parent_x, parent_y, parent_w, parent_h )
@@ -161,10 +198,7 @@ function primitive.render( itemsCache, updated )
 				primitive.prepare_item( cache[2], cache, unpack(cache[3]) )
 				childsUpdated = true
 			end
-			if cache[4] then 
-				cache[4](unpack(cache[5])) 
-			end
-			primitive.render(cache[6], childsUpdated)
+			cache[4](cache[6], childsUpdated, unpack(cache[5])) 
 		end
 	end
 end
@@ -181,11 +215,13 @@ local speedometer = primitive.prepare({
 		{
 			{ "block", x = 0, y = 0, w = 0.66, h = 1, 
 				{
-					function(i)
-						if not i then i = 0 end
-						return i < 9 and i + 1, 
-							{ "text", x = 0.5, y = 0.5, p = i * 30 - 45, l = -0.4, w = 0.25, h = 0.25, font = "pricedown", text = tostring(i) }
-					end,
+					{ "block", buffered = true, 
+						function(i)
+							if not i then i = 0 end
+							return i < 9 and i + 1, 
+								{ "text", x = 0.5, y = 0.5, p = i * 30 - 45, l = -0.4, w = 0.25, h = 0.25, font = "pricedown", text = tostring(i) }
+						end
+					},
 					{ "primitive", type = "trianglestrip", x = 0.5, y = 0.5, w = 0.35, h = 0.03, static = false,
 						r = function() return currentSpeed * 300 / getAircraftMaxVelocity() + 135 end,
 						v = arrowVertices		
@@ -197,11 +233,13 @@ local speedometer = primitive.prepare({
 			},
 			{ "block", x = 0.66, y = 0, w = 0.33, h = 0.5, 
 				{
-					function(i)
-						if not i then i = 0 end
-						return i < 11 and i + 1, 
-							{ "text", x = 0.5, y = 0.5, p = i * 30 + 120, l = -0.4, w = 0.25, h = 0.25, font = "default", text = tostring(i + 1) }
-					end,
+					{ "block", buffered = true, 
+						function(i)
+							if not i then i = 0 end
+							return i < 11 and i + 1, 
+								{ "text", x = 0.5, y = 0.5, p = i * 30 + 120, l = -0.4, w = 0.25, h = 0.25, font = "default", text = tostring(i + 1) }
+						end
+					},
 					{ "primitive", type = "trianglestrip", x = 0.5, y = 0.5, w = 0.35, h = 0.02, static = false,
 						r = function() return currentMinutes * 6 end,
 						v = arrowVertices 			
@@ -214,10 +252,14 @@ local speedometer = primitive.prepare({
 			},
 			{ "block", x = 0.66, y = 0.5, w = 0.33, h = 0.5, 
 				{
-					{ "text", x = 0.5, y = 0.5, p = 0,   l = 0.4, w = 0.25, h = 0.25, font = "default", text = "E" },
-					{ "text", x = 0.5, y = 0.5, p = 90,  l = 0.4, w = 0.25, h = 0.25, font = "default", text = "S" },
-					{ "text", x = 0.5, y = 0.5, p = 180, l = 0.4, w = 0.25, h = 0.25, font = "default", text = "W" },
-					{ "text", x = 0.5, y = 0.5, p = 270, l = 0.4, w = 0.25, h = 0.25, font = "default", text = "N" },
+					{ "block", buffered = true,
+						{ 
+							{ "text", x = 0.5, y = 0.5, p = 0,   l = 0.4, w = 0.25, h = 0.25, font = "default", text = "E" },
+							{ "text", x = 0.5, y = 0.5, p = 90,  l = 0.4, w = 0.25, h = 0.25, font = "default", text = "S" },
+							{ "text", x = 0.5, y = 0.5, p = 180, l = 0.4, w = 0.25, h = 0.25, font = "default", text = "W" },
+							{ "text", x = 0.5, y = 0.5, p = 270, l = 0.4, w = 0.25, h = 0.25, font = "default", text = "N" }
+						}
+					},
 					{ "primitive", type = "trianglefan", x = 0.5, y = 0.5, w = 0.5, h = 0.2, static = false,
 						r = function() return 270 - currentDir end,
 						v = { 
@@ -233,10 +275,25 @@ local speedometer = primitive.prepare({
 	}
 })
 
+local show = true
+
+bindKey("f4", "down", function()
+	show = not show
+end)
+
 addEventHandler( "onClientRender", root, function()
-	local element = getPedOccupiedVehicle( localPlayer ) or localPlayer
-	currentHours, currentMinutes = getTime()	
-	currentSpeed    = getDistanceBetweenPoints3D(0,0,0, getElementVelocity(element))
-	_,_, currentDir = getElementRotation(element)
-	primitive.render( speedometer )
+	if show then
+		local element = getPedOccupiedVehicle( localPlayer ) or localPlayer
+		currentHours, currentMinutes = getTime()	
+		currentSpeed    = getDistanceBetweenPoints3D(0,0,0, getElementVelocity(element))
+		_,_, currentDir = getElementRotation(element)
+		primitive.render( speedometer )
+		primitive.refresh = false
+	end
+end)
+
+addEventHandler("onClientRestore", root, function( didClearRenderTargets )
+	--if didClearRenderTargets then
+		primitive.refresh = true
+	--end
 end)
