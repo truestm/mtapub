@@ -21,7 +21,7 @@ local function getItemPosition(item)
 end
 
 local function getAbsPosition( parent_x, parent_y, parent_w, parent_h, x, y, w, h)
-	return x * parent_w, y * parent_h, w * parent_w, h * parent_h
+	return parent_x + x * parent_w, parent_y + y * parent_h, w * parent_w, h * parent_h
 end
 
 local function getVertices( parent_x, parent_y, parent_w, parent_h, x, y, w, h, r, input, output )
@@ -49,14 +49,14 @@ function primitive.calculate.text( item, cache, parent_x, parent_y, parent_w, pa
 	local x,y,w,h = getAbsPosition( parent_x, parent_y, parent_w, parent_h, getItemPosition(item))
 	local hw, hh = w * 0.5, h * 0.5
 	cache[1] = getValue(item.text)
-	cache[2] = parent_x + x - hw
-	cache[3] = parent_y + y - hh
-	cache[4] = parent_x + x + hw
-	cache[5] = parent_y + y + hh
+	cache[2] = x - hw
+	cache[3] = y - hh
+	cache[4] = x + hw
+	cache[5] = y + hh
 	cache[6] = getValue(item.font)
 	cache[7] = getValue(item.r) or 0
-	cache[8] = x
-	cache[9] = y
+	cache[8] = x - parent_x
+	cache[9] = y - parent_y
 	return x,y,w,h
 end
 
@@ -98,6 +98,12 @@ end
 
 function primitive.draw.rect( x, y, w, h, c )
 	dxDrawRectangle( x, y, w, h, c, false, false )
+end
+
+function primitive.calculate.block( item, cache, parent_x, parent_y, parent_w, parent_h )
+	local x,y,w,h = getAbsPosition( parent_x, parent_y, parent_w, parent_h, getItemPosition( item ) )
+	cache[1], cache[2], cache[3], cache[4] = parent_x + x, parent_y + y, w, h
+	return x,y,w,h
 end
 
 function primitive.prepare_function_item( func, index, cache, x, y, w, h )
@@ -155,41 +161,82 @@ function primitive.render( itemsCache, updated )
 				primitive.prepare_item( cache[2], cache, unpack(cache[3]) )
 				childsUpdated = true
 			end
-			cache[4](unpack(cache[5]))
+			if cache[4] then 
+				cache[4](unpack(cache[5])) 
+			end
 			primitive.render(cache[6], childsUpdated)
 		end
 	end
 end
 
+local currentSpeed, currentHours, currentMinutes, currentDir = 0, 0, 0, 0
+local arrowVertices = { 
+	{ 0, -1, tocolor(255,255,255) },
+	{ 1,  0, tocolor(255,255,255) }, 
+	{ 0,  1, tocolor(255,255,255) }
+}
+
 local speedometer = primitive.prepare({
-	{ "rect", x = 0.75, y = 0.3, w = 0.125, h = 0.2, c = tocolor(0,0,0,128),
+	{ "rect", x = 1 - 0.125 - 0.0625, y = 0.3, w = 0.125 + 0.0625, h = 0.2, c = tocolor(0,0,0,128),
 		{
-			function(i)
-				if not i then i = 0 end
-				return i < 9 and i + 1, 
-					{ "text", x = 0.5, y = 0.5, p = i * 30 - 45, l = -0.4, w = 0.25, h = 0.25, font = "pricedown", text = tostring(i) }
-			end,
-			{ "primitive", type = "trianglestrip", x = 0.5, y = 0.5, w = 0.35, h = 0.03, static = false,
-				r = function()
-					return getDistanceBetweenPoints3D(0,0,0, getElementVelocity(getPedOccupiedVehicle( localPlayer ) or localPlayer)) * 
-						300 / getAircraftMaxVelocity() + 135
-				end,
-				v = { 
-					{ 0, -1, tocolor(255,255,255) },
-					{ 1,  0, tocolor(255,255,255) }, 
-					{ 0,  1, tocolor(255,255,255) }
-				} 			
+			{ "block", x = 0, y = 0, w = 0.66, h = 1, 
+				{
+					function(i)
+						if not i then i = 0 end
+						return i < 9 and i + 1, 
+							{ "text", x = 0.5, y = 0.5, p = i * 30 - 45, l = -0.4, w = 0.25, h = 0.25, font = "pricedown", text = tostring(i) }
+					end,
+					{ "primitive", type = "trianglestrip", x = 0.5, y = 0.5, w = 0.35, h = 0.03, static = false,
+						r = function() return currentSpeed * 300 / getAircraftMaxVelocity() + 135 end,
+						v = arrowVertices		
+					},
+					{ "text", x = 0.5, y = 0.8, w = 0.5, h = 0.2, font = "pricedown", static = false,
+						text = function() return tostring(math.floor(100 * currentSpeed)) end 
+					}
+				}
 			},
-			{ "text", x = 0.5, y = 0.8, w = 0.5, h = 0.2, font = "pricedown", static = false,
-				text = function()
-					local element = getPedOccupiedVehicle( localPlayer ) or localPlayer
-					return tostring(math.floor(100 * getDistanceBetweenPoints3D(0,0,0, getElementVelocity( element ))))
-				end 
+			{ "block", x = 0.66, y = 0, w = 0.33, h = 0.5, 
+				{
+					function(i)
+						if not i then i = 0 end
+						return i < 11 and i + 1, 
+							{ "text", x = 0.5, y = 0.5, p = i * 30 + 120, l = -0.4, w = 0.25, h = 0.25, font = "default", text = tostring(i + 1) }
+					end,
+					{ "primitive", type = "trianglestrip", x = 0.5, y = 0.5, w = 0.35, h = 0.02, static = false,
+						r = function() return currentMinutes * 6 end,
+						v = arrowVertices 			
+					},
+					{ "primitive", type = "trianglestrip", x = 0.5, y = 0.5, w = 0.25, h = 0.02, static = false,
+						r = function() return currentHours * 30 + currentMinutes * 0.5 end,
+						v = arrowVertices		
+					}
+				}
+			},
+			{ "block", x = 0.66, y = 0.5, w = 0.33, h = 0.5, 
+				{
+					{ "text", x = 0.5, y = 0.5, p = 0,   l = 0.4, w = 0.25, h = 0.25, font = "default", text = "E" },
+					{ "text", x = 0.5, y = 0.5, p = 90,  l = 0.4, w = 0.25, h = 0.25, font = "default", text = "S" },
+					{ "text", x = 0.5, y = 0.5, p = 180, l = 0.4, w = 0.25, h = 0.25, font = "default", text = "W" },
+					{ "text", x = 0.5, y = 0.5, p = 270, l = 0.4, w = 0.25, h = 0.25, font = "default", text = "N" },
+					{ "primitive", type = "trianglefan", x = 0.5, y = 0.5, w = 0.5, h = 0.2, static = false,
+						r = function() return 270 - currentDir end,
+						v = { 
+							{  0.5,    0, tocolor(255,255,255) },
+							{ -0.5, -0.5, tocolor(255,255,255) }, 
+							{ -0.3,    0, tocolor(255,255,255) }, 
+							{ -0.5,  0.5, tocolor(255,255,255) }
+						}
+					}
+				}
 			}
 		}
 	}
 })
 
 addEventHandler( "onClientRender", root, function()
+	local element = getPedOccupiedVehicle( localPlayer ) or localPlayer
+	currentHours, currentMinutes = getTime()	
+	currentSpeed    = getDistanceBetweenPoints3D(0,0,0, getElementVelocity(element))
+	_,_, currentDir = getElementRotation(element)
 	primitive.render( speedometer )
 end)
