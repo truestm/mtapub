@@ -1,4 +1,4 @@
-local primitive = { calculate = {}, draw = {}, refresh = true }
+local primitive = { calculate = {}, draw = {}, frame = 0, refresh = true }
 
 local function getValue(value, ...)
 	if type(value) == "function" then
@@ -139,6 +139,36 @@ function primitive.draw.block( childs, updated, x, y, w, h, rt )
 	end
 end
 
+function primitive.calculate.graph( item, cache, parent_x, parent_y, parent_w, parent_h )
+	local x,y,w,h = getAbsPosition( parent_x, parent_y, parent_w, parent_h, getItemPosition( item ) )
+
+	if not cache[1] then cache[1] = {} end
+	local vertices = cache[1]
+	
+	local size  = getValue(item.size) or 10
+	local color = getValue(item.color)
+
+	local dx = w / size
+
+	for i = #vertices / 2, size - 1 do
+		vertices[i * 2 + 1] = { x + i * dx, y + h, color }
+		vertices[i * 2 + 2] = { x + i * dx, y + h - h * ( getValue(item.value) or 0 ), color }
+	end
+	
+	for i = 1, size - 1 do
+		vertices[i * 2][2] = vertices[i * 2 + 2][2]
+	end
+	
+	vertices[size * 2][2] = y + h - h * ( getValue(item.value) or 0 )
+
+	return x,y,w,h
+end
+
+function primitive.draw.graph( childs, updated, vertices )
+	dxDrawPrimitive( "trianglestrip", false, unpack(vertices) )
+	primitive.render( childs, updated )
+end
+
 function primitive.prepare_function_item( func, index, cache, x, y, w, h )
 	local iterator,item
 	repeat
@@ -174,7 +204,7 @@ function primitive.prepare( items, cache, x, y, w, h )
 end
 
 function primitive.prepare_item( item, cache, parent_x, parent_y, parent_w, parent_h )
-	cache[1] = getValue(item.static) ~= false
+	cache[1] = getValue(item.rate)
 	cache[2] = item
 	if not cache[3] then cache[3] = {} end
 	cache[3][1] = parent_x
@@ -188,17 +218,20 @@ function primitive.prepare_item( item, cache, parent_x, parent_y, parent_w, pare
 		if not cache[6] then cache[6] = {} end
 		primitive.prepare( item[2], cache[6], x,y,w,h )
 	end
+	cache[7] = 0
 end
 
 function primitive.render( itemsCache, updated )
 	if itemsCache then
 		for i,cache in ipairs(itemsCache) do
 			local childsUpdated = updated
-			if not ( childsUpdated or cache[1] ) then
+			if childsUpdated or ( cache[1] and cache[7] >= cache[1] ) then
 				primitive.prepare_item( cache[2], cache, unpack(cache[3]) )
 				childsUpdated = true
+				cache[7] = 0
 			end
 			cache[4](cache[6], childsUpdated, unpack(cache[5])) 
+			cache[7] = cache[7] + 1
 		end
 	end
 end
@@ -211,27 +244,34 @@ local arrowVertices = {
 }
 
 local speedometer = primitive.prepare({
-	{ "rect", x = 1 - 0.125 - 0.0625, y = 0.3, w = 0.125 + 0.0625, h = 0.2, c = tocolor(0,0,0,128),
+	{ "rect", x = 1 - 0.2, y = 0.3, w = 0.2, h = 0.32, c = tocolor(0,0,0,128),
 		{
-			{ "block", x = 0, y = 0, w = 0.66, h = 1, 
+			{ "block", x = 0, y = 0, w = 0.5, h = 0.5, 
 				{
 					{ "block", buffered = true, 
 						function(i)
 							if not i then i = 0 end
 							return i < 9 and i + 1, 
-								{ "text", x = 0.5, y = 0.5, p = i * 30 - 45, l = -0.4, w = 0.25, h = 0.25, font = "pricedown", text = tostring(i) }
+								{ "text", x = 0.5, y = 0.5, p = i * 30 - 45, l = -0.4, w = 0.25, h = 0.25, font = "default", text = tostring(i) }
 						end
 					},
-					{ "primitive", type = "trianglestrip", x = 0.5, y = 0.5, w = 0.35, h = 0.03, static = false,
+					{ "primitive", type = "trianglestrip", x = 0.5, y = 0.5, w = 0.35, h = 0.03, rate = 0,
 						r = function() return currentSpeed * 300 / getAircraftMaxVelocity() + 135 end,
 						v = arrowVertices		
 					},
-					{ "text", x = 0.5, y = 0.8, w = 0.5, h = 0.2, font = "pricedown", static = false,
+					{ "text", x = 0.5, y = 0.8, w = 0.5, h = 0.2, font = "default", rate = 0,
 						text = function() return tostring(math.floor(100 * currentSpeed)) end 
 					}
 				}
 			},
-			{ "block", x = 0.66, y = 0, w = 0.33, h = 0.5, 
+			{ "block", x = 0, y = 0.5, w = 0.5, h = 0.5, 
+				{
+					{ "graph", color = tocolor(255,255,255), size = 100, rate = 0, 
+						value = function() return currentSpeed / getAircraftMaxVelocity() end 
+					}
+				}
+			},
+			{ "block", x = 0.5, y = 0, w = 0.5, h = 0.5, 
 				{
 					{ "block", buffered = true, 
 						function(i)
@@ -240,17 +280,17 @@ local speedometer = primitive.prepare({
 								{ "text", x = 0.5, y = 0.5, p = i * 30 + 120, l = -0.4, w = 0.25, h = 0.25, font = "default", text = tostring(i + 1) }
 						end
 					},
-					{ "primitive", type = "trianglestrip", x = 0.5, y = 0.5, w = 0.35, h = 0.02, static = false,
+					{ "primitive", type = "trianglestrip", x = 0.5, y = 0.5, w = 0.35, h = 0.02, rate = 0,
 						r = function() return currentMinutes * 6 end,
 						v = arrowVertices 			
 					},
-					{ "primitive", type = "trianglestrip", x = 0.5, y = 0.5, w = 0.25, h = 0.02, static = false,
+					{ "primitive", type = "trianglestrip", x = 0.5, y = 0.5, w = 0.25, h = 0.02, rate = 0,
 						r = function() return currentHours * 30 + currentMinutes * 0.5 end,
 						v = arrowVertices		
 					}
 				}
 			},
-			{ "block", x = 0.66, y = 0.5, w = 0.33, h = 0.5, 
+			{ "block", x = 0.5, y = 0.5, w = 0.5, h = 0.5, 
 				{
 					{ "block", buffered = true,
 						{ 
@@ -260,7 +300,7 @@ local speedometer = primitive.prepare({
 							{ "text", x = 0.5, y = 0.5, p = 270, l = 0.4, w = 0.25, h = 0.25, font = "default", text = "N" }
 						}
 					},
-					{ "primitive", type = "trianglefan", x = 0.5, y = 0.5, w = 0.5, h = 0.2, static = false,
+					{ "primitive", type = "trianglefan", x = 0.5, y = 0.5, w = 0.5, h = 0.2, rate = 0,
 						r = function() return 270 - currentDir end,
 						v = { 
 							{  0.5,    0, tocolor(255,255,255) },
@@ -287,8 +327,10 @@ addEventHandler( "onClientRender", root, function()
 		currentHours, currentMinutes = getTime()	
 		currentSpeed    = getDistanceBetweenPoints3D(0,0,0, getElementVelocity(element))
 		_,_, currentDir = getElementRotation(element)
+		
 		primitive.render( speedometer )
 		primitive.refresh = false
+		primitive.frame = primitive.frame + 1
 	end
 end)
 
