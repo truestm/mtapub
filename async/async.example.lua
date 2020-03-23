@@ -10,7 +10,8 @@ if triggerServerEvent == nil then
 		local task2 = asyncSleep(10000)
 		local task3 = asyncWaitEvent("onResourceStop", resourceRoot)
 		local task4 = asyncWaitEvent("onPlayerJoin", root, nil, true)
-		local task5 = asyncSleep(10000, true)
+		local task5 = asyncSleep(10000, true)		
+		local task6 = asyncHttpRequest("http://www.google.com")
 		
 		outputDebugString("query result "..tostring(asyncResult(task0)[1]["1"]))
 		
@@ -19,6 +20,13 @@ if triggerServerEvent == nil then
 		
 		asyncResult(task2)
 		outputDebugString("sleep 2 end ")
+				
+		if task6 then
+			local response,errorno = asyncResult(task6)
+			if response then
+				outputDebugString(response:sub(1,80))
+			end
+		end
 				
 		asyncSwitch({task4, task5, task3},
 			function(client, source)

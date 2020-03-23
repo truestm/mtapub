@@ -80,3 +80,17 @@ function asyncAddClientEventHandler( event, element, handler, propagated, busy )
 	addEventHandler( triggerServerEvent == nil and "onElementDestroy" or "onClientElementDestroy", 
 		element, cleaner, false )
 end
+
+function asyncHttpRequestComplete( response, errorno, id )
+	iprint( type(id), id )
+	asyncComplete( id, response, errorno )
+end
+	
+function asyncHttpRequest( URL, options )
+	local taskid, task = asyncTask()
+	local request = fetchRemote( URL, options or {}, asyncHttpRequestComplete, { taskid } )
+	if request then
+		return task
+	end
+	asyncDispose( task )
+end
