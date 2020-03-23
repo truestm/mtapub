@@ -82,7 +82,6 @@ function asyncAddClientEventHandler( event, element, handler, propagated, busy )
 end
 
 function asyncHttpRequestComplete( response, errorno, id )
-	iprint( type(id), id )
 	asyncComplete( id, response, errorno )
 end
 	
